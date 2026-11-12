@@ -1,0 +1,10 @@
+node_modules
+dist
+*.local
+
+# App Android
+*.apk
+*.aab
+.env.local
+dist-web
+tsconfig.tsbuildinfo

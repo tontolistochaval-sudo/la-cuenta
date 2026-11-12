@@ -1,0 +1,154 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Paleta exacta de La Cuenta. */
+  /* Lino y crema: sin blanco puro, todo en la misma familia cálida que el terracota y el oliva. */
+  --color-paper: #f1eadf; /* Lino: fondo principal */
+  --color-cream: #faf6ef; /* Crema de ticket: tarjetas y hojas */
+  --color-line: #e2d6c3; /* Borde sutil */
+  --color-sand: #e9dfcf; /* Arena: chips, inputs, bloques */
+  --color-ink: #1c1917; /* Ink Charcoal */
+  --color-muted: #6b6259; /* Piedra cálida (contraste AA sobre lino) */
+  --color-terracotta: #e05a47; /* Lacre */
+  --color-terracotta-dark: #c84a38;
+  --color-sage: #4a6b53; /* Sage Olive */
+  --color-gold: #d97706;
+  --color-gold-soft: #fef3c7;
+
+  --font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Sombras cálidas (nada de negro genérico) */
+  --shadow-warm: 0 1px 2px rgb(120 100 70 / 0.05), 0 10px 28px -14px rgb(120 100 70 / 0.22);
+  --shadow-lift: 0 2px 4px rgb(120 100 70 / 0.06), 0 24px 48px -20px rgb(120 90 60 / 0.32);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    background: var(--color-paper);
+  }
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+    /* Es una app: cada pantalla cabe en el viewport y solo hacen scroll las listas. */
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  input,
+  textarea {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  ::selection {
+    background: rgb(224 90 71 / 0.2);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-terracotta);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Grano de papel muy sutil sobre el fondo */
+@utility paper-grain {
+  background-image: radial-gradient(rgb(120 100 70 / 0.045) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+/* Borde dentado de recibo (arriba y abajo) */
+@utility ticket-edge {
+  --tooth: 9px;
+  -webkit-mask:
+    radial-gradient(circle at 50% 0, transparent calc(var(--tooth) / 2), #000 calc(var(--tooth) / 2 + 0.5px)) top / var(--tooth) 51% repeat-x,
+    radial-gradient(circle at 50% 100%, transparent calc(var(--tooth) / 2), #000 calc(var(--tooth) / 2 + 0.5px)) bottom / var(--tooth) 51% repeat-x;
+  mask:
+    radial-gradient(circle at 50% 0, transparent calc(var(--tooth) / 2), #000 calc(var(--tooth) / 2 + 0.5px)) top / var(--tooth) 51% repeat-x,
+    radial-gradient(circle at 50% 100%, transparent calc(var(--tooth) / 2), #000 calc(var(--tooth) / 2 + 0.5px)) bottom / var(--tooth) 51% repeat-x;
+}
+
+/* Slider táctil */
+input[type='range'].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  background: transparent;
+  --fill: 50%;
+  --accent: var(--color-terracotta);
+}
+input[type='range'].slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill), var(--color-sand) var(--fill));
+}
+input[type='range'].slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-sand);
+}
+input[type='range'].slider::-moz-range-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+input[type='range'].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -10px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 4px 12px -4px rgb(120 90 60 / 0.4);
+}
+input[type='range'].slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid var(--accent);
+}
+
+/* Leaflet en clave cálida */
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: var(--color-sand);
+}
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  background: rgb(241 234 223 / 0.85) !important;
+  border-radius: 8px 0 0 0;
+}
+.leaflet-control-zoom {
+  border: 1px solid var(--color-line) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  box-shadow: var(--shadow-warm) !important;
+}
+.leaflet-control-zoom a {
+  color: var(--color-ink) !important;
+  background: #fff !important;
+  border-color: var(--color-line) !important;
+}
+.lc-pin {
+  background: none;
+  border: none;
+}
+
+/* Mapa a color, templado hacia la paleta lino/terracota. */
+.leaflet-tile-pane {
+  filter: sepia(0.06) saturate(1.05) contrast(0.98);
+}
