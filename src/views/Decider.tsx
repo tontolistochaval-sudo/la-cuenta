@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { Navigation, RotateCcw, Shuffle } from 'lucide-react';
+import { Navigation, Plus, RotateCcw, Shuffle, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { RestaurantEntry } from '../data/seedData';
-import { directionsUrl, fmtEuro, fmtScore, ofKind } from '../lib/utils';
+import { directionsUrl, emojiFor, fmtEuro, fmtScore, ofKind } from '../lib/utils';
+import { haptic } from '../lib/native';
 import { Chip, ICON, Kicker, Photo, Segmented } from '../components/ui';
 import { CONFETTI_COLORS } from '../components/RateSheet';
 
@@ -20,6 +21,9 @@ export default function Decider({ onOpen }: { onOpen: (id: string) => void }) {
   // Sin pendientes no hay nada "nuevo" que sortear: empezar por los clásicos.
   const [pool, setPool] = useState<Pool>(() => (mine.some((r) => r.status === 'wishlist') ? 'nuevo' : 'clasico'));
   const [hood, setHood] = useState<string | null>(null);
+  const [cat, setCat] = useState<string | null>(null);
+  // Sitios que hoy no apetecen: fuera del sorteo hasta que se recuperen.
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const [budget, setBudget] = useState<number | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [current, setCurrent] = useState<RestaurantEntry | null>(null);
@@ -37,22 +41,40 @@ export default function Decider({ onOpen }: { onOpen: (id: string) => void }) {
       ),
     [mine, pool]
   );
+  const cats = [...new Set(base.map((r) => r.category))];
   const hoods = [...new Set(base.map((r) => r.neighborhood).filter(Boolean) as string[])];
   const prices = base.map((r) => r.pricePerPerson).filter((p): p is number => p != null);
   const maxPrice = prices.length ? Math.max(20, ...prices.map((p) => Math.ceil(p / 5) * 5)) : 0;
   const cap = budget ?? maxPrice;
-  const candidates = base.filter(
-    (r) => (!hood || r.neighborhood === hood) && (r.pricePerPerson == null || !maxPrice || r.pricePerPerson <= cap)
+  // Lo que encaja con los filtros (se ve en el bombo) y, de ello, lo que entra en el sorteo.
+  const filtered = base.filter(
+    (r) =>
+      (!cat || r.category === cat) &&
+      (!hood || r.neighborhood === hood) &&
+      (r.pricePerPerson == null || !maxPrice || r.pricePerPerson <= cap)
   );
+  const candidates = filtered.filter((r) => !excluded.has(r.id));
+  const excludedHere = filtered.length - candidates.length;
+
+  const toggleExclude = (id: string) => {
+    haptic.tap();
+    setExcluded((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   useEffect(() => {
     timers.current.forEach(clearTimeout);
     setPhase('idle');
     setCurrent(null);
-  }, [hood, budget, pool, mode]);
+  }, [hood, cat, budget, pool, mode, excluded]);
   useEffect(() => {
     setHood(null);
+    setCat(null);
     setBudget(null);
   }, [pool, mode]);
 
@@ -106,6 +128,18 @@ export default function Decider({ onOpen }: { onOpen: (id: string) => void }) {
             { value: 'sorpresa', label: 'Sorpresa' },
           ]}
         />
+        {cats.length > 1 && (
+          <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4" role="toolbar" aria-label="Qué apetece">
+            <Chip active={!cat} onClick={() => setCat(null)}>
+              Cualquier cosa
+            </Chip>
+            {cats.map((c) => (
+              <Chip key={c} active={cat === c} onClick={() => setCat(cat === c ? null : c)}>
+                {emojiFor(c)} {c}
+              </Chip>
+            ))}
+          </div>
+        )}
         {hoods.length > 1 && (
           <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4">
             <Chip active={!hood} onClick={() => setHood(null)}>
@@ -149,23 +183,49 @@ export default function Decider({ onOpen }: { onOpen: (id: string) => void }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex max-h-full flex-wrap content-center justify-center gap-2 overflow-hidden"
+              className="flex max-h-full w-full flex-col items-center gap-3 overflow-y-auto"
             >
-              {candidates.length === 0 ? (
+              {filtered.length === 0 ? (
                 <p className="text-center font-serif text-[24px] text-muted">
                   {pool === 'nuevo' ? 'No hay pendientes que sortear.' : 'Nada encaja con esos filtros.'}
                 </p>
               ) : (
-                candidates.map((r, i) => (
-                  <motion.span
-                    key={r.id}
-                    animate={{ y: [0, -5, 0] }}
-                    transition={{ duration: 2.2, repeat: Infinity, delay: i * 0.25, ease: 'easeInOut' }}
-                    className="rounded-full border border-line bg-cream px-3.5 py-2 text-[13px] font-semibold"
-                  >
-                    {r.name}
-                  </motion.span>
-                ))
+                <>
+                  <p className="text-center text-[12px] text-muted">
+                    Toca los que hoy <b>no</b> os apetecen para sacarlos del sorteo
+                  </p>
+                  <div className="flex flex-wrap content-center justify-center gap-2">
+                    {filtered.map((r, i) => {
+                      const out = excluded.has(r.id);
+                      return (
+                        <motion.button
+                          key={r.id}
+                          type="button"
+                          onClick={() => toggleExclude(r.id)}
+                          aria-pressed={!out}
+                          aria-label={out ? `Volver a meter ${r.name}` : `Quitar ${r.name} del sorteo`}
+                          animate={out ? { y: 0 } : { y: [0, -5, 0] }}
+                          transition={out ? { duration: 0.2 } : { duration: 2.2, repeat: Infinity, delay: i * 0.25, ease: 'easeInOut' }}
+                          className={`inline-flex items-center gap-1 rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors ${
+                            out ? 'border-dashed border-stone-300 bg-transparent text-muted/70 line-through' : 'border-line bg-cream'
+                          }`}
+                        >
+                          {out ? <Plus size={13} {...ICON} /> : <X size={13} {...ICON} className="text-muted" />}
+                          {r.name}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                  {excludedHere > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setExcluded(new Set())}
+                      className="text-[12.5px] font-semibold text-terracotta underline underline-offset-2"
+                    >
+                      Recuperar {excludedHere === 1 ? 'el quitado' : `los ${excludedHere} quitados`}
+                    </button>
+                  )}
+                </>
               )}
             </motion.div>
           ) : (
@@ -218,6 +278,15 @@ export default function Decider({ onOpen }: { onOpen: (id: string) => void }) {
                       Ver ficha
                     </button>
                   </div>
+                )}
+                {phase === 'done' && candidates.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => toggleExclude(current.id)}
+                    className="mt-2 text-[12.5px] font-semibold text-muted underline underline-offset-2"
+                  >
+                    Este no, quitarlo y volver a sortear
+                  </button>
                 )}
               </div>
             </motion.div>

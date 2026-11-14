@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cloud, CloudOff, Copy, LoaderCircle, LogOut, RefreshCw, Users } from 'lucide-react';
+import { ChevronDown, Cloud, CloudOff, Copy, LoaderCircle, LogOut, RefreshCw, Users } from 'lucide-react';
 import { Card, ICON, Kicker } from './ui';
 import { createMesa, joinMesa, signIn, signOut, syncConfigured, syncNow, useSync } from '../lib/sync';
 import { haptic, shareText } from '../lib/native';
@@ -141,29 +141,12 @@ export default function SyncCard() {
 
       {/* 3 · Conectados */}
       {s.mesa && s.status !== 'mesa' && s.status !== 'login' && (
-        <div className="mt-3 space-y-3">
-          <div className="flex items-center gap-3 rounded-2xl bg-sand/60 p-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] text-muted">Código de vuestra mesa</p>
-              <p className="font-mono text-[24px] leading-tight font-bold tracking-[0.25em]">{s.mesa.codigo}</p>
-              <p className="text-[12px] text-muted">
-                {s.members === 1 ? 'Solo tú: pásale el código al otro' : s.members ? `${s.members} en la mesa` : ''} · {ago(s.lastSync)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={async () => {
-                const r = await shareText(`Únete a nuestra mesa en La Cuenta. con el código ${s.mesa!.codigo}`, 'La Cuenta.');
-                if (r === 'copied') showToast('Código copiado');
-              }}
-              aria-label="Compartir el código"
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-cream"
-            >
-              <Copy size={17} {...ICON} />
-            </button>
-          </div>
-          <p className="text-[12.5px] text-muted">Conectado como {s.email}</p>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="mt-2">
+          {/* A la vista solo lo útil: con quién, cuándo y sincronizar. */}
+          <div className="flex items-center gap-3">
+            <p className="min-w-0 flex-1 text-[13.5px] text-muted">
+              {s.members === 1 ? 'Solo tú en la mesa todavía' : s.members ? `${s.members} en la mesa` : 'En vuestra mesa'} · {ago(s.lastSync)}
+            </p>
             <button
               type="button"
               onClick={() => {
@@ -171,18 +154,49 @@ export default function SyncCard() {
                 run('sync', syncNow);
               }}
               disabled={!!busy || s.status === 'syncing'}
-              className="flex items-center justify-center gap-2 rounded-full bg-ink py-3 text-[14px] font-semibold text-paper disabled:opacity-50"
+              aria-label="Sincronizar ahora"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-sand px-3.5 py-2 text-[13px] font-semibold disabled:opacity-50"
             >
-              {spinner('sync') || <RefreshCw size={16} {...ICON} />} Sincronizar
-            </button>
-            <button
-              type="button"
-              onClick={() => signOut()}
-              className="flex items-center justify-center gap-2 rounded-full bg-sand py-3 text-[14px] font-semibold"
-            >
-              <LogOut size={16} {...ICON} /> Salir
+              {spinner('sync') || <RefreshCw size={14} {...ICON} />} Sincronizar
             </button>
           </div>
+
+          {/* Lo que se usa una vez (código, cuenta, salir), plegado. */}
+          <details className="group mt-3 rounded-2xl border border-line">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-3.5 py-2.5 text-[13px] font-semibold text-muted [&::-webkit-details-marker]:hidden">
+              Código de la mesa y cuenta
+              <ChevronDown size={16} {...ICON} className="transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-3 border-t border-line px-3.5 pt-3 pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] text-muted">Código para unirse</p>
+                  <p className="font-mono text-[22px] leading-tight font-bold tracking-[0.25em]">{s.mesa.codigo}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await shareText(`Únete a nuestra mesa en La Cuenta. con el código ${s.mesa!.codigo}`, 'La Cuenta.');
+                    if (r === 'copied') showToast('Código copiado');
+                  }}
+                  aria-label="Compartir el código"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-sand"
+                >
+                  <Copy size={16} {...ICON} />
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="min-w-0 flex-1 truncate text-[12.5px] text-muted">Conectado como {s.email}</p>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-[12.5px] font-semibold text-terracotta"
+                >
+                  <LogOut size={14} {...ICON} /> Salir
+                </button>
+              </div>
+            </div>
+          </details>
         </div>
       )}
 

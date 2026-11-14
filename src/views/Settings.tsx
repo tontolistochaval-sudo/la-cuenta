@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, Download, GitMerge, RotateCcw, Share, Smartphone, Upload } from 'lucide-react';
+import { Bell, ChevronDown, Download, GitMerge, Share, Smartphone, Upload } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { RestaurantEntry } from '../data/seedData';
 import { parseBackup, today } from '../lib/utils';
@@ -86,15 +86,12 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 
 export default function Settings() {
   const restaurants = useStore((s) => s.restaurants);
-  const replaceAll = useStore((s) => s.replaceAll);
   const mergeAll = useStore((s) => s.mergeAll);
-  const reset = useStore((s) => s.reset);
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<Msg>(null);
   const [pending, setPending] = useState<RestaurantEntry[] | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   const out = restaurants.filter((r) => r.kind === 'restaurant' && r.status === 'visited').length;
   const cooked = restaurants.filter((r) => r.kind === 'recipe' && r.status === 'visited').length;
@@ -144,11 +141,18 @@ export default function Settings() {
 
       <SyncCard />
 
-      <Card className="p-5">
-        <Kicker>Copias a mano</Kicker>
-        <p className="mt-1 text-[13.5px] text-muted">
-          Una copia de seguridad, o para pasar los datos sin la nube: uno <b>envía su copia</b> (por WhatsApp, por ejemplo) y el
-          otro la <b>junta</b>. Se queda con lo más reciente de cada sitio, sin duplicar.
+      <details className="group rounded-2xl border border-line bg-cream shadow-warm">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 [&::-webkit-details-marker]:hidden">
+          <span>
+            <Kicker>Copias de seguridad</Kicker>
+            <span className="text-[13px] text-muted">Guardar o abrir una copia a mano</span>
+          </span>
+          <ChevronDown size={18} {...ICON} className="text-muted transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-line px-5 pt-3 pb-5">
+        <p className="text-[13.5px] text-muted">
+          Con la nube ya no hace falta, pero viene bien guardar una copia de vez en cuando. Al <b>abrir</b> una copia se{" "}
+          <b>junta</b> con lo que hay: se queda con lo más reciente de cada sitio, sin duplicar ni borrar nada.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button
@@ -183,7 +187,7 @@ export default function Settings() {
             <p className="text-[13.5px]">
               La copia trae <b>{pending.length}</b> entradas. ¿Qué hago?
             </p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -192,20 +196,9 @@ export default function Settings() {
                   haptic.success();
                   setMsg({ kind: 'ok', text: `Juntado: ${added} nuevas y ${updated} actualizadas.` });
                 }}
-                className="flex items-center justify-center gap-1.5 rounded-full bg-sage py-2.5 text-[13.5px] font-semibold text-white"
+                className="flex w-full items-center justify-center gap-1.5 rounded-full bg-sage py-2.5 text-[13.5px] font-semibold text-white"
               >
                 <GitMerge size={15} {...ICON} /> Juntar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  replaceAll(pending);
-                  setMsg({ kind: 'ok', text: `Reemplazado por la copia (${pending.length} entradas).` });
-                  setPending(null);
-                }}
-                className="rounded-full border border-line bg-cream py-2.5 text-[13.5px] font-semibold text-terracotta"
-              >
-                Reemplazar todo
               </button>
             </div>
             <button type="button" onClick={() => setPending(null)} className="mt-2 w-full text-center text-[12.5px] text-muted">
@@ -222,7 +215,8 @@ export default function Settings() {
             {msg.text}
           </p>
         )}
-      </Card>
+        </div>
+      </details>
 
       {isNative && (
         <Card className="flex items-center gap-4 p-5">
@@ -238,38 +232,6 @@ export default function Settings() {
       )}
 
       <InstallCard />
-
-      <Card className="p-5">
-        <Kicker>Empezar de cero</Kicker>
-        <p className="mt-1 text-[14px] text-muted">Vuelve a dejar solo lo del Excel. Se pierde todo lo añadido.</p>
-        {confirmReset ? (
-          <div className="mt-3 flex gap-2">
-            <button type="button" onClick={() => setConfirmReset(false)} className="flex-1 rounded-full bg-sand py-3 text-[14px]">
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                reset();
-                setConfirmReset(false);
-                haptic.warning();
-                setMsg({ kind: 'ok', text: 'Vuelta a los datos del Excel.' });
-              }}
-              className="flex-1 rounded-full bg-terracotta py-3 text-[14px] font-semibold text-white"
-            >
-              Sí, borrar lo añadido
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmReset(true)}
-            className="mt-3 flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-[14px] font-semibold text-terracotta"
-          >
-            <RotateCcw size={15} {...ICON} /> Volver al Excel
-          </button>
-        )}
-      </Card>
 
       <div className="space-y-1 pt-2 text-center">
         <p className="font-mono text-[10px] tracking-[0.2em] text-muted">LA CUENTA. · G & V · MADRID · MMXXVI</p>

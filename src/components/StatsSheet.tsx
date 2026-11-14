@@ -30,7 +30,7 @@ export default function StatsSheet({ open, onClose, onOpen }: { open: boolean; o
 
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-2xl bg-ink p-3.5 text-paper">
-            <Kicker className="!text-paper/55">{home ? 'Platos' : 'Cuentas'}</Kicker>
+            <Kicker className="text-paper/55!">{home ? 'Platos' : 'Cuentas'}</Kicker>
             <p className="font-serif text-[40px] leading-none">{s.n}</p>
           </div>
           <div className={tile}>
@@ -44,6 +44,8 @@ export default function StatsSheet({ open, onClose, onOpen }: { open: boolean; o
                 {s.repeat}
                 <span className="text-[18px] text-muted">/{s.repeatKnown}</span>
               </p>
+              {/* Solo cuentan los que habéis marcado "Repetimos" o "Una y no más". */}
+              <p className="mt-0.5 text-[10.5px] leading-tight text-muted">de los {s.repeatKnown} que habéis marcado</p>
             </div>
           ) : (
             <div className={tile}>

@@ -53,6 +53,8 @@ export type RateTarget = {
   evaluate?: boolean;
   status?: 'wishlist';
   step?: 'donde' | 'receta';
+  /** Forzar Fuera o En casa al crear (p. ej. desde el Recetario). */
+  kind?: Kind;
 } | null;
 
 interface Props {
@@ -72,7 +74,7 @@ export default function RateSheet({ target, onClose, onSaved }: Props) {
           entry={entry}
           evaluate={!!target.evaluate}
           startAt={target.step}
-          initialKind={entry?.kind ?? mode}
+          initialKind={entry?.kind ?? target.kind ?? mode}
           initialStatus={target.status ?? (entry && !target.evaluate ? entry.status : 'visited')}
           onSaved={onSaved}
         />
@@ -136,7 +138,8 @@ function Flow({
   const [vibe, setVibe] = useState(entry?.scores?.vibe);
   const [value, setValue] = useState(entry?.scores?.value);
   const [bestDish, setBestDish] = useState(entry?.bestDish ?? '');
-  const [wouldRepeat, setWouldRepeat] = useState<boolean | undefined>(entry?.wouldRepeat ?? true);
+  // Sin marcar hasta que lo elijáis (antes salía "sí" por defecto y falseaba las estadísticas).
+  const [wouldRepeat, setWouldRepeat] = useState<boolean | undefined>(entry?.wouldRepeat);
   const [notes, setNotes] = useState(entry?.notes ?? '');
   const [imageUrl, setImageUrl] = useState(entry?.imageUrl);
   const [recipe, setRecipe] = useState<RecipeDraft>({
@@ -1162,7 +1165,7 @@ function VerdictStep(p: {
   setVibe: (n?: number) => void;
   setValue: (n?: number) => void;
   wouldRepeat?: boolean;
-  setWouldRepeat: (b: boolean) => void;
+  setWouldRepeat: (b?: boolean) => void;
   bestDish: string;
   setBestDish: (s: string) => void;
   notes: string;
@@ -1219,7 +1222,7 @@ function VerdictStep(p: {
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => p.setWouldRepeat(true)}
+          onClick={() => p.setWouldRepeat(p.wouldRepeat === true ? undefined : true)}
           aria-pressed={p.wouldRepeat === true}
           className={`flex items-center justify-center gap-2 rounded-full py-3 font-semibold transition-colors ${
             p.wouldRepeat === true ? 'bg-sage text-white' : 'bg-sand text-muted'
@@ -1229,7 +1232,7 @@ function VerdictStep(p: {
         </button>
         <button
           type="button"
-          onClick={() => p.setWouldRepeat(false)}
+          onClick={() => p.setWouldRepeat(p.wouldRepeat === false ? undefined : false)}
           aria-pressed={p.wouldRepeat === false}
           className={`flex items-center justify-center gap-2 rounded-full py-3 font-semibold transition-colors ${
             p.wouldRepeat === false ? 'bg-terracotta text-white' : 'bg-sand text-muted'

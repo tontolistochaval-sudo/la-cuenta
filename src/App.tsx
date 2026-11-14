@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { App as CapApp } from '@capacitor/app';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bookmark, Dices, Map as MapIcon, Plus, Settings as SettingsIcon, Trophy, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bookmark, Dices, Map as MapIcon, Plus, Settings as SettingsIcon, Trophy, type LucideIcon } from 'lucide-react';
 import Ranking from './views/Ranking';
 import Wishlist from './views/Wishlist';
+import Recipes from './views/Recipes';
 import Decider from './views/Decider';
 import Settings from './views/Settings';
 import DetailSheet from './components/DetailSheet';
@@ -18,11 +19,12 @@ import { bootSync } from './lib/sync';
 
 const MapView = lazy(() => import('./views/MapView'));
 
-type Tab = 'olimpo' | 'pendientes' | 'mapa' | 'decisor' | 'ajustes';
+type Tab = 'olimpo' | 'pendientes' | 'recetas' | 'mapa' | 'decisor' | 'ajustes';
 
 const TABS: { id: Tab; label: string; Icon: LucideIcon }[] = [
   { id: 'olimpo', label: 'El Olimpo', Icon: Trophy },
   { id: 'pendientes', label: 'Pendientes', Icon: Bookmark },
+  { id: 'recetas', label: 'Recetario', Icon: BookOpen },
   { id: 'mapa', label: 'Mapa', Icon: MapIcon },
   { id: 'decisor', label: 'Decisor', Icon: Dices },
   { id: 'ajustes', label: 'Ajustes', Icon: SettingsIcon },
@@ -46,7 +48,7 @@ export default function App() {
   const closeDetail = useCallback(() => setDetailId(null), []);
   const closeRate = useCallback(() => setRate(null), []);
   const closeStats = useCallback(() => setStats(false), []);
-  const newEntry = () => setRate({ id: null });
+  const newEntry = () => setRate({ id: null, kind: tab === 'recetas' ? 'recipe' : undefined });
 
   // El mapa y el decisor son pantallas fijas; el resto se desliza como una página.
   const scrolls = tab !== 'mapa' && tab !== 'decisor';
@@ -158,6 +160,7 @@ export default function App() {
             {tab === 'olimpo' && (
               <Ranking onOpen={openDetail} onAdd={newEntry} onStats={() => setStats(true)} />
             )}
+            {tab === 'recetas' && <Recipes onOpen={openDetail} onAdd={() => setRate({ id: null, kind: 'recipe' })} />}
             {tab === 'pendientes' && (
               <Wishlist
                 onOpen={openDetail}

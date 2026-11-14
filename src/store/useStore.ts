@@ -180,7 +180,7 @@ export const useStore = create<State>()(
     }),
     {
       name: KEY,
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => idbStorage),
       partialize: (s) => ({ restaurants: s.restaurants, mode: s.mode, settings: s.settings, tombstones: s.tombstones }),
       merge: (persisted, current) => {
@@ -188,8 +188,29 @@ export const useStore = create<State>()(
         return { ...current, ...p, settings: { ...current.settings, ...(p.settings ?? {}) } };
       },
       migrate: (persisted, version) => {
+        let state = (version >= 4 ? persisted : toV4(persisted)) as State;
+        // → v5: el formulario marcaba "Repetimos: sí" sin que lo eligierais. Se quitan esos "sí"
+        // (los "no" sí fueron vuestros). Sin tocar updatedAt, para no reenviarlos a la nube.
+        if (version < 5) {
+          state = {
+            ...state,
+            restaurants: (state.restaurants ?? []).map((r) => {
+              if (r.wouldRepeat !== true) return r;
+              const { wouldRepeat: _w, ...rest } = r;
+              void _w;
+              return rest;
+            }),
+          };
+        }
+        return state;
+      },
+    }
+  )
+);
+
+/** Migración a v4: solo los datos del Excel (conservando lo vuestro). */
+function toV4(persisted: unknown) {
         const old = (persisted ?? {}) as { restaurants?: RestaurantEntry[]; mode?: Kind; settings?: Settings };
-        if (version >= 4) return persisted as State;
         // → v4: solo los datos del Excel. Lo añadido a mano se conserva tal cual; de las entradas
         // del Excel se respeta lo que pusisteis vosotros: ubicación, foto propia y receta.
         const seed = new Map(INITIAL_RESTAURANTS.map((r) => [r.id, r]));
@@ -212,7 +233,4 @@ export const useStore = create<State>()(
           mode: old.mode ?? 'restaurant',
           settings: old.settings ?? { reminder: false, sort: 'score' },
         } as State;
-      },
-    }
-  )
-);
+}
