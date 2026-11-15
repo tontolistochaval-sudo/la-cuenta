@@ -173,21 +173,42 @@ async function groq(system: string, user: string, opts: { json: boolean; search?
   if (!GROQ_KEY) throw new Error('Sin respaldo: falta el secreto GROQ_API_KEY.');
   const model = await pickGroq(opts.search ? 'search' : 'text');
   if (!model) throw new Error('Groq no tiene modelo con búsqueda web.');
-  const res = await fetch(`${GROQ_API}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model,
-      temperature: opts.search ? 0.5 : 0.2,
-      max_completion_tokens: 3000,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      ...(opts.json && !opts.search ? { response_format: { type: 'json_object' } } : {}),
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
+  const send = (strictJson: boolean) =>
+    fetch(`${GROQ_API}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
+      body: JSON.stringify({
+        model,
+        temperature: opts.search ? 0.5 : 0.2,
+        max_completion_tokens: 3000,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        ...(strictJson ? { response_format: { type: 'json_object' } } : {}),
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+  let res = await send(opts.json && !opts.search);
+  if (res.status === 400) {
+    const t = await res.text();
+    // Modo JSON estricto rechazó la respuesta: Groq adjunta lo que generó; si se puede reparar, se usa.
+    if (/validate JSON|json_validate_failed|failed_generation/i.test(t)) {
+      try {
+        const failed = JSON.parse(t)?.error?.failed_generation as string | undefined;
+        if (failed) {
+          parseJson(failed); // lanza si no se puede reparar
+          return failed;
+        }
+      } catch {
+        /* no reparable: reintentar sin modo estricto */
+      }
+      res = await send(false);
+    } else {
+      throw new Error(`Groq respondió 400: ${googleMessage(t)}`);
+    }
+  }
   if (!res.ok) {
     const t = await res.text();
     if (res.status === 429) throw new Error('Gemini y Groq están sin cuota ahora mismo. Prueba en un rato.');
@@ -202,8 +223,20 @@ function parseJson(text: string) {
   const clean = text.replace(/```(?:json)?/g, '').trim();
   const start = clean.search(/[[{]/);
   const end = Math.max(clean.lastIndexOf('}'), clean.lastIndexOf(']'));
-  if (start < 0 || end < start) throw new Error('Gemini no devolvió datos legibles.');
-  return JSON.parse(clean.slice(start, end + 1));
+  if (start < 0 || end < start) throw new Error('La IA no devolvió datos legibles.');
+  const body = clean.slice(start, end + 1);
+  try {
+    return JSON.parse(body);
+  } catch {
+    // Reparaciones típicas: comas sobrantes, comentarios, comillas tipográficas, valores tipo "null".
+    const fixed = body
+      .replace(/\/\/[^\n"]*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/[“”]/g, '"')
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/:\s*"null"/g, ': null');
+    return JSON.parse(fixed);
+  }
 }
 
 /** De un enlace de TikTok/Instagram/web intenta sacar la descripción (lo que suele llevar la receta). */
