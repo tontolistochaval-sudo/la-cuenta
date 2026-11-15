@@ -20,47 +20,81 @@ const CORS = {
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 const KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
-let model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash';
-let modelChecked = false;
+/** Modelo que ha funcionado la última vez (se recuerda mientras la función siga caliente). */
+let working: string | null = Deno.env.get('GEMINI_MODEL') ?? null;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
-/** Si el modelo configurado ya no existe, elige el "flash" más reciente disponible. */
-async function pickNewestFlash() {
-  const res = await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': KEY } });
-  if (!res.ok) return;
-  const data = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
-  const flash = (data.models ?? [])
-    .filter((m) => /flash/.test(m.name) && !/lite|image|tts|audio|live|thinking|exp/.test(m.name))
-    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
-    .map((m) => m.name.replace('models/', ''))
-    .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
-  if (flash[0]) model = flash[0];
+/** Solo Vero y Gonzalo: la llamada tiene que traer la sesión de un usuario real de Supabase. */
+async function isUser(req: Request): Promise<boolean> {
+  const auth = req.headers.get('Authorization') ?? '';
+  const apikey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const url = Deno.env.get('SUPABASE_URL');
+  if (!url || !auth.startsWith('Bearer ')) return false;
+  const res = await fetch(`${url}/auth/v1/user`, { headers: { Authorization: auth, apikey } });
+  return res.ok;
 }
 
+/** Modelos a probar, de mejor a más ligero: el configurado, los Flash más nuevos y los Flash-Lite. */
+async function candidates(): Promise<string[]> {
+  const list: string[] = [];
+  if (working) list.push(working);
+  try {
+    const res = await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': KEY } });
+    if (res.ok) {
+      const data = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
+      const names = (data.models ?? [])
+        .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+        .map((m) => m.name.replace('models/', ''))
+        .filter((n) => /flash/.test(n) && !/image|tts|audio|live|thinking|exp|preview/.test(n))
+        .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+      list.push(...names.filter((n) => !/lite/.test(n)), ...names.filter((n) => /lite/.test(n)));
+    }
+  } catch {
+    /* sin lista: se prueban los conocidos */
+  }
+  list.push('gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash');
+  return [...new Set(list)];
+}
+
+/** Mensaje legible del error de Google. */
+const googleMessage = (t: string) => {
+  try {
+    return (JSON.parse(t)?.error?.message as string)?.split('\n')[0]?.slice(0, 300) ?? t.slice(0, 300);
+  } catch {
+    return t.slice(0, 300);
+  }
+};
+
 async function gemini(body: Record<string, unknown>): Promise<string> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const models = await candidates();
+  let lastError = 'No hay ningún modelo de Gemini disponible.';
+  for (const model of models.slice(0, 6)) {
     const res = await fetch(`${API}/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': KEY },
       body: JSON.stringify(body),
     });
-    if (res.status === 404 && !modelChecked) {
-      modelChecked = true;
-      await pickNewestFlash();
+    if (res.ok) {
+      working = model;
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts ?? [];
+      return parts.map((p: { text?: string }) => p.text ?? '').join('');
+    }
+    const t = await res.text();
+    const msg = googleMessage(t);
+    // Modelo inexistente o sin cuota para esta clave: probar el siguiente.
+    if (res.status === 404 || res.status === 429 || (res.status === 400 && /not supported|google_search/i.test(msg))) {
+      lastError = res.status === 429 ? `Sin cuota en ${model}: ${msg}` : `${model}: ${msg}`;
+      if (working === model) working = null;
       continue;
     }
-    if (!res.ok) {
-      const t = await res.text();
-      if (res.status === 429) throw new Error('Gemini está saturado o se ha llegado al límite gratuito. Prueba en un rato.');
-      throw new Error(`Gemini respondió ${res.status}: ${t.slice(0, 200)}`);
-    }
-    const data = await res.json();
-    const parts = data?.candidates?.[0]?.content?.parts ?? [];
-    return parts.map((p: { text?: string }) => p.text ?? '').join('');
+    if (res.status === 400 && /API key not valid/i.test(msg)) throw new Error('La clave GEMINI_API_KEY no es válida. Revísala en Supabase → Edge Functions → Secrets.');
+    if (res.status === 400 && /location|country|region/i.test(msg)) throw new Error(`Gemini no está disponible desde esta región: ${msg}`);
+    throw new Error(`Gemini respondió ${res.status}: ${msg}`);
   }
-  throw new Error('No hay ningún modelo de Gemini disponible.');
+  throw new Error(`Gemini no ha podido responder. ${lastError}`);
 }
 
 /** Saca el primer bloque JSON del texto (por si viene con ```json … ```). */
@@ -193,6 +227,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Usa POST' }, 405);
   if (!KEY) return json({ error: 'Falta el secreto GEMINI_API_KEY en Supabase.' }, 500);
+  if (!(await isUser(req))) return json({ error: 'Para usar la IA, entra en Ajustes → Juntos en la nube.' }, 401);
   try {
     const body = await req.json();
     if (body.task === 'recipe') return json(await recipe(String(body.text ?? '')));

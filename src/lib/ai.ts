@@ -53,7 +53,8 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
         /* nada */
       }
     }
-    if (/not found|404/i.test(msg)) msg = 'Falta subir la función "gemini" a Supabase.';
+    if (/Requested function was not found/i.test(msg) || (ctx?.status === 404 && !/Gemini/i.test(msg)))
+      msg = 'Falta subir la función "gemini" a Supabase.';
     if (/Failed to send|fetch/i.test(msg)) msg = 'No se pudo contactar con la IA. Revisa la conexión.';
     throw new Error(msg);
   }
