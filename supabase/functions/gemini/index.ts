@@ -382,7 +382,7 @@ const RECIPE_SCHEMA = {
   required: ['title', 'ingredients', 'steps'],
 };
 
-async function recipe(text: string) {
+async function recipe(text: string, create = false) {
   let source = text.trim();
   const url = source.match(/https?:\/\/\S+/)?.[0];
   // Si solo hay (casi) un enlace, intentar leer la descripción del vídeo o la web.
@@ -390,10 +390,12 @@ async function recipe(text: string) {
     const desc = await fetchDescription(url);
     if (desc) source = `${source}\n\nTexto encontrado en el enlace:\n${desc}`;
   }
-  if (source.length < 15) throw new Error('Pega el texto de la receta (o un enlace que tenga la receta escrita).');
+  if (!create && source.length < 15) throw new Error('Pega el texto de la receta (o un enlace que tenga la receta escrita).');
 
-  const system =
-    'Eres un cocinero que convierte textos desordenados (descripciones de TikTok, Instagram, webs, notas) en recetas claras en español de España. ' +
+  const system = create
+    ? 'Eres un cocinero que escribe recetas caseras completas y realistas en español de España a partir del nombre de un plato (y una nota de contexto). ' +
+      'Ingredientes con cantidades para 2 personas, pasos en imperativo con tiempos y temperaturas, utensilios necesarios y 1-2 consejos útiles. Que se pueda hacer en una cocina normal.'
+    : 'Eres un cocinero que convierte textos desordenados (descripciones de TikTok, Instagram, webs, notas) en recetas claras en español de España. ' +
     'Respeta la receta original. Ingredientes con cantidad delante ("200 g de harina"); si falta una cantidad, propón una razonable y añade "(aprox.)". ' +
     'Pasos en imperativo, uno por acción, con tiempos y temperaturas concretos cuando se puedan deducir. ' +
     'Incluye los utensilios necesarios (sartén, horno, batidora…). Consejos solo si aportan algo. ' +
@@ -503,6 +505,54 @@ priceLevel: 1=barato … 4=caro.`;
   return { places: toPlaces(out), provider: 'groq', grounded: false, model: lastModel };
 }
 
+/* ─────────── Tarea: descubrir recetas (Casa) ─────────── */
+
+async function discoverRecipes(p: { visited?: Visited[]; wishlist?: string[]; focus?: string; wish?: string }) {
+  const done = (p.visited ?? []).slice(0, 60);
+  const fmt = (v: Visited) => `- ${v.name} · ${v.category ?? 'sin tipo'} · media ${v.average ?? '?'}`;
+  const loved = done.filter((v) => (v.average ?? 0) >= 8.5);
+  const meh = done.filter((v) => (v.average ?? 0) < 7.5);
+  const lovedTypes = [...new Set(loved.map((v) => v.category).filter(Boolean))];
+  const rules =
+    p.focus === 'nuevo'
+      ? `ENFOQUE "algo nuevo": platos de tipos que NO hemos hecho (ya hemos hecho: ${[...new Set(done.map((v) => v.category).filter(Boolean))].join(', ') || 'nada'}). En "why" cuenta qué tiene de especial el plato por sí mismo. "basedOn" siempre null.`
+      : p.focus === 'rapidas'
+        ? `ENFOQUE "rápidas": platos que se hagan en 30 minutos o menos en total. Si alguno es del mismo tipo que uno que nos encantó, ponlo en "basedOn"; si no, null. Nunca relaciones tipos de plato distintos.`
+        : `ENFOQUE "como las mejores": CADA plato debe ser del MISMO TIPO que alguno de los que nos encantaron (tipos: ${lovedTypes.join(', ') || 'cualquiera'}). En "basedOn" pon EXACTAMENTE el nombre del plato de la lista en el que te basas y en "why" la similitud concreta (técnica, sabor, ingrediente). Prohibido relacionar tipos distintos. Reparte entre los distintos platos que nos encantaron.`;
+
+  const prompt = `Somos una pareja (Gonzalo y Vero) que cocina en casa y puntúa lo que hace del 0 al 10.
+
+Nos encantaron:
+${loved.map(fmt).join('\n') || '- (todavía ninguno)'}
+${meh.length ? `\nNo nos convencieron (evita platos parecidos):\n${meh.map(fmt).join('\n')}` : ''}
+
+No propongas ninguno de los anteriores ni estos que ya tenemos pendientes: ${(p.wishlist ?? []).join(', ') || 'ninguno'}.
+
+${rules}
+${p.wish ? `
+Hoy además nos apetece: "${p.wish}". Respétalo por encima de todo.` : ''}
+
+Propón 6 recetas caseras realistas para 2 personas.
+Devuelve SOLO un JSON con esta forma:
+{"recipes":[{"name":"","category":"Comida casera|Postre|Pasta|Cena rápida|Horno|otra corta","minutes":30,"difficulty":"fácil|media|difícil","basedOn":"nombre de la lista o null","why":"una frase concreta y cierta"}]}`;
+
+  const toList = (out: string) => {
+    const parsed = parseJson(out);
+    return (Array.isArray(parsed) ? parsed : parsed.recipes ?? []).filter((x: { name?: string }) => x?.name).slice(0, 8);
+  };
+  try {
+    const out = await gemini({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.5, responseMimeType: 'application/json' },
+    });
+    return { recipes: toList(out), provider: 'gemini', model: lastModel };
+  } catch (e) {
+    if (!GROQ_KEY) throw e;
+    const out = await groq('Eres un cocinero casero español. Respondes solo con JSON.', prompt, { json: true });
+    return { recipes: toList(out), provider: 'groq', model: lastModel };
+  }
+}
+
 /* ─────────── Servidor ─────────── */
 
 Deno.serve(async (req) => {
@@ -512,7 +562,8 @@ Deno.serve(async (req) => {
   if (!(await isUser(req))) return json({ error: 'Para usar la IA, entra en Ajustes → Juntos en la nube.' }, 401);
   try {
     const body = await req.json();
-    if (body.task === 'recipe') return json(await recipe(String(body.text ?? '')));
+    if (body.task === 'recipe') return json(await recipe(String(body.text ?? ''), body.create === true));
+    if (body.task === 'discoverRecipes') return json(await discoverRecipes(body));
     if (body.task === 'discover') return json(await discover(body));
     if (body.task === 'diag') return json(await diagnose());
     if (body.task === 'places') return json(await places(String(body.q ?? ''), body.near));

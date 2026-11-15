@@ -11,6 +11,7 @@ import DetailSheet from './components/DetailSheet';
 import RateSheet, { type RateTarget } from './components/RateSheet';
 import StatsSheet from './components/StatsSheet';
 import DiscoverSheet from './components/DiscoverSheet';
+import DiscoverRecipesSheet from './components/DiscoverRecipesSheet';
 import Toast from './components/Toast';
 import { ICON, Segmented } from './components/ui';
 import { useStore } from './store/useStore';
@@ -41,12 +42,15 @@ export default function App() {
   const [stats, setStats] = useState(false);
   const [discover, setDiscover] = useState(false);
   const closeDiscover = useCallback(() => setDiscover(false), []);
+  const [discoverRecipes, setDiscoverRecipes] = useState(false);
+  const closeDiscoverRecipes = useCallback(() => setDiscoverRecipes(false), []);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
 
   const openDetail = useCallback((id: string) => {
     setStats(false);
     setDiscover(false);
+    setDiscoverRecipes(false);
     setDetailId(id);
   }, []);
   const closeDetail = useCallback(() => setDetailId(null), []);
@@ -164,13 +168,13 @@ export default function App() {
             {tab === 'olimpo' && (
               <Ranking onOpen={openDetail} onAdd={newEntry} onStats={() => setStats(true)} />
             )}
-            {tab === 'recetas' && <Recipes onOpen={openDetail} onAdd={() => setRate({ id: null, kind: 'recipe' })} />}
+            {tab === 'recetas' && <Recipes onOpen={openDetail} onAdd={() => setRate({ id: null, kind: 'recipe' })} onDiscover={() => setDiscoverRecipes(true)} />}
             {tab === 'pendientes' && (
               <Wishlist
                 onOpen={openDetail}
                 onEvaluate={(id) => setRate({ id, evaluate: true })}
                 onAddWish={() => setRate({ id: null, status: 'wishlist' })}
-                onDiscover={() => setDiscover(true)}
+                onDiscover={() => (mode === 'recipe' ? setDiscoverRecipes(true) : setDiscover(true))}
               />
             )}
             {tab === 'mapa' && (
@@ -218,6 +222,7 @@ export default function App() {
 
       <StatsSheet open={stats} onClose={closeStats} onOpen={openDetail} />
       <DiscoverSheet open={discover} onClose={closeDiscover} onOpen={openDetail} />
+      <DiscoverRecipesSheet open={discoverRecipes} onClose={closeDiscoverRecipes} onOpen={openDetail} />
       <DetailSheet
         id={detailId}
         onClose={closeDetail}

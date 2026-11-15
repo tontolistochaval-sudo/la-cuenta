@@ -29,7 +29,7 @@ export interface AIPlace {
   basedOn?: string | null;
 }
 
-export type DiscoverFocus = 'parecido' | 'zonas' | 'nuevo';
+export type DiscoverFocus = 'parecido' | 'zonas' | 'nuevo' | 'rapidas';
 
 /** ¿Se puede usar la IA ahora mismo? Devuelve el motivo si no. */
 export function aiUnavailable(): string | null {
@@ -129,4 +129,46 @@ export async function resolveMapsLink(
   } catch {
     return null;
   }
+}
+
+export interface AIRecipeIdea {
+  name: string;
+  category?: string;
+  minutes?: number;
+  difficulty?: string;
+  why?: string;
+  basedOn?: string | null;
+}
+
+/** Ideas de recetas según lo que mejor os ha salido en casa. */
+export async function aiDiscoverRecipes(all: RestaurantEntry[], focus: DiscoverFocus, wish: string) {
+  const visited = all
+    .filter((r) => r.kind === 'recipe' && r.status === 'visited' && r.scores)
+    .sort((a, b) => b.scores!.average - a.scores!.average)
+    .map((r) => ({ name: r.name, category: r.category, average: r.scores!.average }));
+  const wishlist = all.filter((r) => r.kind === 'recipe' && r.status === 'wishlist').map((r) => r.name);
+  const res = await call<{ recipes: AIRecipeIdea[]; provider?: string; model?: string }>({ task: 'discoverRecipes', visited, wishlist, focus, wish });
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() && !/^(null|undefined)$/i.test(v.trim()) ? v.trim() : undefined);
+  const recipes = (Array.isArray(res.recipes) ? res.recipes : [])
+    .map(
+      (r): AIRecipeIdea => ({
+        name: text(r.name) ?? '',
+        category: text(r.category),
+        minutes: Number.isFinite(Number(r.minutes)) ? Number(r.minutes) : undefined,
+        difficulty: text(r.difficulty),
+        why: text(r.why),
+        basedOn: text(r.basedOn) ?? null,
+      })
+    )
+    .filter((r) => r.name);
+  return { ...res, recipes };
+}
+
+/** Escribe la receta completa de un plato (para guardarla lista para cocinar). */
+export async function aiCreateRecipe(name: string, context?: string) {
+  return call<{ recipe: AIRecipe; provider?: string; model?: string }>({
+    task: 'recipe',
+    create: true,
+    text: `Plato: ${name}${context ? `\nContexto: ${context}` : ''}`,
+  });
 }

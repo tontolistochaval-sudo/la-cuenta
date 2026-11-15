@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, ChefHat, Clock, Plus, Search, X } from 'lucide-react';
+import { BookOpen, ChefHat, Clock, Plus, Search, Sparkles, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { RestaurantEntry } from '../data/seedData';
 import { emojiFor, fmtScore, lastVisit, norm } from '../lib/utils';
@@ -13,10 +13,11 @@ type Order = 'name' | 'score' | 'recent' | 'quick';
 interface Props {
   onOpen: (id: string) => void;
   onAdd: () => void;
+  onDiscover: () => void;
 }
 
 /** Recetario: todas las recetas (hechas y por hacer) para buscar qué cocinar. */
-export default function Recipes({ onOpen, onAdd }: Props) {
+export default function Recipes({ onOpen, onAdd, onDiscover }: Props) {
   const restaurants = useStore((s) => s.restaurants);
   const recipes = useMemo(() => restaurants.filter((r) => r.kind === 'recipe'), [restaurants]);
   const [q, setQ] = useState('');
@@ -61,13 +62,22 @@ export default function Recipes({ onOpen, onAdd }: Props) {
           </Kicker>
           <h2 className="font-serif text-[30px] leading-none">Recetario</h2>
         </div>
-        <button
-          type="button"
-          onClick={onAdd}
-          className="flex items-center gap-1 rounded-full bg-terracotta px-3.5 py-2 text-[13px] font-semibold text-white"
-        >
-          <Plus size={15} {...ICON} /> Receta
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={onDiscover}
+            className="flex items-center gap-1 rounded-full bg-terracotta px-3.5 py-2 text-[13px] font-semibold text-white"
+          >
+            <Sparkles size={15} {...ICON} /> Ideas
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="flex items-center gap-1 rounded-full bg-sand px-3.5 py-2 text-[13px] font-semibold"
+          >
+            <Plus size={15} {...ICON} /> Receta
+          </button>
+        </div>
       </div>
 
       {/* Buscador y filtros, siempre a mano al bajar */}

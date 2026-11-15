@@ -26,7 +26,7 @@ export default function Wishlist({ onOpen, onEvaluate, onAddWish, onDiscover }: 
           <h2 className="font-serif text-[30px] leading-none">{home ? 'Por cocinar' : 'Pendientes'}</h2>
         </div>
         <div className="flex gap-1.5">
-          {!home && (
+          {(
             <button
               type="button"
               onClick={onDiscover}
