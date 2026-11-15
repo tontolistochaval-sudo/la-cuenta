@@ -290,7 +290,42 @@ async function resolveLink(link: string) {
     if (/consent\.google/.test(url) && cont) url = cont;
     if (/!3d-?\d|@-?\d+\.\d+,-?\d+\.\d+/.test(decodeURIComponent(url))) break;
   }
-  return { url };
+  const decoded = decodeURIComponent(url);
+  const num = '(-?\\d{1,3}\\.\\d+)';
+  const pick = (...res: RegExp[]) => {
+    for (const re of res) {
+      const m = decoded.match(re);
+      if (m) return [Number(m[1]), Number(m[2])] as [number, number];
+    }
+    return undefined;
+  };
+  let coordinates = pick(new RegExp(`!3d${num}!4d${num}`), new RegExp(`[?&](?:q|ll|center)=${num},\\s*${num}`), new RegExp(`@${num},${num}`));
+  const u = new URL(url);
+  let name =
+    decoded.match(/\/maps\/place\/([^/@?]+)/)?.[1]?.replace(/\+/g, ' ') ??
+    (u.searchParams.get('q') && !/^-?\d+\.\d+,/.test(u.searchParams.get('q')!) ? u.searchParams.get('q')!.replace(/\+/g, ' ') : undefined);
+
+  // Sin coordenadas en la dirección: la página trae una imagen de vista previa con el punto (center=lat,lng) y el título.
+  if (!coordinates) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36', 'Accept-Language': 'es-ES,es' },
+        signal: AbortSignal.timeout(8000),
+      });
+      const html = (await res.text()).slice(0, 400_000).replace(/&amp;/g, '&');
+      const m =
+        html.match(/center=(-?\d{1,3}\.\d+)(?:%2C|,)(-?\d{1,3}\.\d+)/) ??
+        html.match(/markers=(-?\d{1,3}\.\d+)(?:%2C|,)(-?\d{1,3}\.\d+)/) ??
+        html.match(/\[null,null,(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})\]/);
+      if (m) coordinates = [Number(m[1]), Number(m[2])];
+      const title = html.match(/<meta[^>]+(?:property|itemprop)="(?:og:title|name)"[^>]+content="([^"]+)"/i)?.[1];
+      if (title && !/^Google Maps$/i.test(title)) name = name ?? title.split('·')[0].trim();
+    } catch {
+      /* sin página: se queda con lo que haya */
+    }
+  }
+  if (coordinates && !coordinates.every((n) => Number.isFinite(n) && Math.abs(n) <= 180)) coordinates = undefined;
+  return { url, name, coordinates };
 }
 
 /* ─────────── Tarea: receta ─────────── */

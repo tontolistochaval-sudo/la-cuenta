@@ -849,9 +849,13 @@ function WhereStep({
       const full = await resolveMapsLink(short);
       setBusy(null);
       if (full) {
-        const fromLink = parseShared(full);
+        const fromLink = parseShared(full.url);
         const textName = parsed.name && !/^https?:/i.test(parsed.name) ? parsed.name : undefined;
-        parsed = { ...fromLink, name: textName ?? fromLink.name, query: parsed.query ?? fromLink.query };
+        parsed = {
+          coordinates: full.coordinates ?? fromLink.coordinates,
+          name: textName ?? full.name ?? fromLink.name,
+          query: parsed.query ?? full.name ?? fromLink.query,
+        };
       }
     }
     if (parsed.coordinates) {

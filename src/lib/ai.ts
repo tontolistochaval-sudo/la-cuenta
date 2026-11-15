@@ -120,10 +120,12 @@ export async function tomtomPlaces(q: string, near?: [number, number]): Promise<
 }
 
 /** Abre un enlace corto de Google Maps (maps.app.goo.gl) y devuelve la dirección completa con las coordenadas. */
-export async function resolveMapsLink(url: string): Promise<string | null> {
+export async function resolveMapsLink(
+  url: string
+): Promise<{ url: string; name?: string; coordinates?: [number, number] } | null> {
   if (aiUnavailable()) return null;
   try {
-    return (await call<{ url: string }>({ task: 'resolve', url })).url ?? null;
+    return await call<{ url: string; name?: string; coordinates?: [number, number] }>({ task: 'resolve', url });
   } catch {
     return null;
   }
