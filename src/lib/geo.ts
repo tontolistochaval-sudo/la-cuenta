@@ -3,6 +3,8 @@
  * Uso ligero y educado: ~1 petición por segundo como mucho (la búsqueda al escribir va con pausa).
  */
 
+import { tomtomPlaces } from './ai';
+
 export interface Place {
   name: string;
   address?: string;
@@ -195,10 +197,12 @@ export async function searchPlaces(
   const { signal, onMore, quick } = opts;
   const near = lastKnown;
   const photonP = photon(q, signal);
-  let places = await inMadrid(q, signal);
+  // TomTom (negocios que no están en OpenStreetMap) a la vez que Nominatim.
+  const [nomi, tomtom] = await Promise.all([inMadrid(q, signal), tomtomPlaces(q, near)]);
+  let places = mergePlaces(tomtom.filter((p) => p.type), mergePlaces(nomi, tomtom));
   let corrected: string | undefined;
 
-  if (places.length < 3) {
+  if (places.length < 3 && !tomtom.length) {
     // Pocos o ningún resultado: probar erratas típicas y juntar lo que salga.
     // Al escribir (quick) solo la más probable, para no saturar el buscador.
     for (const v of typoVariants(q).slice(0, quick ? 1 : 3)) {

@@ -228,6 +228,71 @@ async function fetchDescription(url: string): Promise<string> {
   }
 }
 
+/* ─────────── Tarea: buscar sitios con TomTom (más negocios que OpenStreetMap) ─────────── */
+
+const TOMTOM_KEY = Deno.env.get('TOMTOM_API_KEY') ?? '';
+
+interface TomTomResult {
+  type: string;
+  poi?: { name?: string; phone?: string; url?: string; classifications?: { code?: string }[] };
+  address?: Record<string, string>;
+  position?: { lat: number; lon: number };
+}
+
+async function places(q: string, near?: [number, number]) {
+  if (!TOMTOM_KEY) return { places: [], disabled: true };
+  const [lat, lon] = near ?? [40.4168, -3.7038];
+  const url =
+    `https://api.tomtom.com/search/2/search/${encodeURIComponent(q.slice(0, 120))}.json` +
+    `?key=${TOMTOM_KEY}&language=es-ES&countrySet=ES&limit=10&typeahead=false&lat=${lat}&lon=${lon}&radius=40000`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`TomTom respondió ${res.status}`);
+  const data = (await res.json()) as { results?: TomTomResult[] };
+  const FOOD = /RESTAURANT|CAFE|PUB|BAR|FAST|BAKERY|ICE_CREAM|NIGHTLIFE/i;
+  return {
+    places: (data.results ?? [])
+      .filter((r) => r.position)
+      .map((r) => {
+        const a = r.address ?? {};
+        const street = a.streetName ? `${a.streetName}${a.streetNumber ? ` ${a.streetNumber}` : ''}` : undefined;
+        const isFood = r.type === 'POI' && (r.poi?.classifications ?? []).some((c) => FOOD.test(c.code ?? ''));
+        return {
+          name: r.poi?.name ?? street ?? a.freeformAddress ?? q,
+          address: street ?? a.freeformAddress,
+          neighborhood: a.municipalitySubdivision || a.localName || undefined,
+          coordinates: [Number(r.position!.lat.toFixed(5)), Number(r.position!.lon.toFixed(5))] as [number, number],
+          type: isFood ? 'restaurant' : undefined,
+          phone: r.poi?.phone,
+          website: r.poi?.url ? (/^https?:/i.test(r.poi.url) ? r.poi.url : `https://${r.poi.url}`) : undefined,
+        };
+      }),
+  };
+}
+
+/* ─────────── Tarea: abrir enlaces cortos de Google Maps (maps.app.goo.gl) ─────────── */
+
+async function resolveLink(link: string) {
+  if (!/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs|maps\.google\.|www\.google\.[a-z.]+\/maps)/i.test(link)) {
+    throw new Error('Solo se pueden abrir enlaces de Google Maps.');
+  }
+  let url = link;
+  for (let i = 0; i < 6; i++) {
+    const res = await fetch(url, {
+      redirect: 'manual',
+      headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36' },
+      signal: AbortSignal.timeout(8000),
+    });
+    const next = res.headers.get('location');
+    if (!next) break;
+    url = new URL(next, url).toString();
+    // La página de consentimiento de Google lleva la dirección real en "continue".
+    const cont = new URL(url).searchParams.get('continue');
+    if (/consent\.google/.test(url) && cont) url = cont;
+    if (/!3d-?\d|@-?\d+\.\d+,-?\d+\.\d+/.test(decodeURIComponent(url))) break;
+  }
+  return { url };
+}
+
 /* ─────────── Tarea: receta ─────────── */
 
 const RECIPE_SCHEMA = {
@@ -295,27 +360,41 @@ interface Visited {
 async function discover(p: { visited?: Visited[]; wishlist?: string[]; focus?: string; wish?: string; city?: string }) {
   const city = p.city || 'Madrid';
   const visited = (p.visited ?? []).slice(0, 60);
-  const lista = visited
-    .map((v) => `- ${v.name} (${[v.category, v.neighborhood].filter(Boolean).join(', ')}) → media ${v.average ?? '?'} (G ${v.gonzalo ?? '?'}, V ${v.vero ?? '?'})`)
-    .join('\n');
-  const focus =
+  const fmt = (v: Visited) => `- ${v.name} · ${v.category ?? 'sin tipo'}${v.neighborhood ? ` · ${v.neighborhood}` : ''} · media ${v.average ?? '?'}`;
+  // Separar lo que de verdad os gustó de lo que no, para que no se base en un 6.
+  const loved = visited.filter((v) => (v.average ?? 0) >= 8.5);
+  const meh = visited.filter((v) => (v.average ?? 0) < 7.5);
+  const lovedTypes = [...new Set(loved.map((v) => v.category).filter(Boolean))];
+  const hoods = [...new Set(visited.map((v) => v.neighborhood).filter(Boolean))];
+
+  const rules =
     p.focus === 'zonas'
-      ? 'Prioriza sitios en los barrios donde más han ido o muy cerca de ellos.'
+      ? `ENFOQUE "vuestras zonas": todos los sitios deben estar en estos barrios o pegados a ellos: ${hoods.join(', ') || 'centro de Madrid'}.
+En "why" di en qué barrio está y, si es del mismo tipo que alguno que os encantó, cuál ("Como Burmet, smash burgers y en Arganzuela").
+En "basedOn" pon el nombre del sitio de la lista con el que comparte TIPO DE COCINA, o null si no comparte ninguno. Nunca relaciones cocinas distintas.`
       : p.focus === 'nuevo'
-        ? 'Prioriza descubrir: tipos de cocina y barrios que todavía NO han probado, aunque sean diferentes a lo habitual.'
-        : 'Prioriza sitios parecidos a los que mejor puntuaron (mismo tipo de cocina, estilo y precio).';
+        ? `ENFOQUE "algo nuevo": recomienda tipos de cocina que NO aparecen en la lista (ya conocemos: ${[...new Set(visited.map((v) => v.category).filter(Boolean))].join(', ') || 'nada'}).
+En "why" explica qué tiene de especial ese sitio por sí mismo. NO lo justifiques con lo que nos gustó antes: es para salir de lo habitual.
+"basedOn" siempre null.`
+        : `ENFOQUE "como los mejores": CADA recomendación debe ser del MISMO TIPO DE COCINA que alguno de los que nos encantaron (tipos válidos: ${lovedTypes.join(', ') || 'cualquiera'}).
+En "basedOn" pon EXACTAMENTE el nombre del sitio de "nos encantaron" en el que te basas, y en "why" explica la similitud concreta (mismo plato, estilo, ambiente o precio).
+Prohibido justificar con otra cocina: nada de "si os gustó el sushi, os gustará esta paella". Reparte las recomendaciones entre los distintos sitios que nos encantaron.`;
 
-  const prompt = `Somos una pareja (Gonzalo y Vero) que puntúa restaurantes en ${city}.
-Donde ya hemos ido y nuestras notas (0-10):
-${lista || '- (todavía nada)'}
+  const prompt = `Somos una pareja (Gonzalo y Vero) que puntúa restaurantes en ${city} del 0 al 10.
 
-Ya los tenemos apuntados como pendientes (NO los recomiendes): ${(p.wishlist ?? []).join(', ') || 'ninguno'}.
-${focus}
-${p.wish ? `Además, hoy nos apetece: "${p.wish}".` : ''}
+Nos encantaron (nota alta):
+${loved.map(fmt).join('\n') || '- (todavía ninguno)'}
+${meh.length ? `\nNo nos convencieron (evita sitios parecidos):\n${meh.map(fmt).join('\n')}` : ''}
+${visited.length > loved.length + meh.length ? `\nOtros donde ya hemos ido:\n${visited.filter((v) => !loved.includes(v) && !meh.includes(v)).map(fmt).join('\n')}` : ''}
 
-Busca en Google y recomiéndanos 6 restaurantes REALES de ${city}, abiertos actualmente, que no estén en las listas anteriores.
+No recomiendes ninguno de los anteriores ni estos pendientes: ${(p.wishlist ?? []).join(', ') || 'ninguno'}.
+
+${rules}
+${p.wish ? `\nHoy además nos apetece: "${p.wish}". Respétalo por encima de todo.` : ''}
+
+Busca en Google y recomiéndanos 6 restaurantes REALES de ${city}, abiertos actualmente.
 Devuelve SOLO un JSON (sin texto antes ni después) con esta forma:
-{"places":[{"name":"","category":"Hamburguesas|Sushi|Italiano|Burrito|Ramen|Fusión|Mediterráneo|Postres / Café|otra corta","neighborhood":"barrio","address":"calle y número","priceLevel":1,"why":"una frase en español de por qué nos puede gustar, citando lo que ya nos gustó si aplica","dish":"plato que hay que pedir"}]}
+{"places":[{"name":"","category":"Hamburguesas|Sushi|Italiano|Burrito|Ramen|Fusión|Mediterráneo|Postres / Café|otra corta","neighborhood":"barrio","address":"calle y número","priceLevel":1,"basedOn":"nombre de la lista o null","why":"una frase concreta y cierta","dish":"plato que hay que pedir"}]}
 priceLevel: 1=barato … 4=caro.`;
 
   const toPlaces = (out: string) => {
@@ -328,7 +407,7 @@ priceLevel: 1=barato … 4=caro.`;
     const out = await gemini({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.7 },
+      generationConfig: { temperature: 0.4 },
     });
     return { places: toPlaces(out), provider: 'gemini', grounded: true };
   } catch (e) {
@@ -364,6 +443,8 @@ Deno.serve(async (req) => {
     if (body.task === 'recipe') return json(await recipe(String(body.text ?? '')));
     if (body.task === 'discover') return json(await discover(body));
     if (body.task === 'diag') return json(await diagnose());
+    if (body.task === 'places') return json(await places(String(body.q ?? ''), body.near));
+    if (body.task === 'resolve') return json(await resolveLink(String(body.url ?? '')));
     return json({ error: 'Tarea desconocida' }, 400);
   } catch (e) {
     return json({ error: (e as Error).message ?? 'Error' }, 500);

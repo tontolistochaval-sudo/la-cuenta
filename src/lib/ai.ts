@@ -25,6 +25,8 @@ export interface AIPlace {
   priceLevel?: number;
   why?: string;
   dish?: string;
+  /** Sitio vuestro en el que se basa la sugerencia (mismo tipo de cocina). */
+  basedOn?: string | null;
 }
 
 export type DiscoverFocus = 'parecido' | 'zonas' | 'nuevo';
@@ -82,4 +84,25 @@ export async function aiDiscover(all: RestaurantEntry[], focus: DiscoverFocus, w
     }));
   const wishlist = all.filter((r) => r.kind === 'restaurant' && r.status === 'wishlist').map((r) => r.name);
   return call<{ places: AIPlace[]; provider?: string; grounded?: boolean }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
+}
+
+/** Búsqueda de sitios con TomTom (vía la función, para no exponer la clave). Sin sesión o sin clave: nada. */
+export async function tomtomPlaces(q: string, near?: [number, number]): Promise<import('./geo').Place[]> {
+  if (aiUnavailable()) return [];
+  try {
+    const r = await call<{ places: import('./geo').Place[] }>({ task: 'places', q, near });
+    return r.places ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Abre un enlace corto de Google Maps (maps.app.goo.gl) y devuelve la dirección completa con las coordenadas. */
+export async function resolveMapsLink(url: string): Promise<string | null> {
+  if (aiUnavailable()) return null;
+  try {
+    return (await call<{ url: string }>({ task: 'resolve', url })).url ?? null;
+  } catch {
+    return null;
+  }
 }

@@ -42,7 +42,7 @@ import {
 } from '../lib/geo';
 import { haptic, pickPhoto, readClipboard } from '../lib/native';
 import { useBackHandler } from '../lib/back';
-import { aiRecipe } from '../lib/ai';
+import { aiRecipe, resolveMapsLink } from '../lib/ai';
 import { linesToList, parseRecipeText } from '../lib/recipe';
 
 const MapPicker = lazy(() => import('./MapPicker'));
@@ -838,17 +838,29 @@ function WhereStep({
     setBusy(null);
   };
 
-  const usePasted = (text: string) => {
-    const parsed = parseShared(text);
+  const usePasted = async (text: string) => {
+    let parsed = parseShared(text);
     setPaste(false);
     setPasteText('');
+    // Enlace corto de Google Maps ("Compartir" en la app): se abre en la nube para sacar el punto exacto.
+    const short = text.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\/\S+/i)?.[0];
+    if (!parsed.coordinates && short) {
+      setBusy('reverse');
+      const full = await resolveMapsLink(short);
+      setBusy(null);
+      if (full) {
+        const fromLink = parseShared(full);
+        const textName = parsed.name && !/^https?:/i.test(parsed.name) ? parsed.name : undefined;
+        parsed = { ...fromLink, name: textName ?? fromLink.name, query: parsed.query ?? fromLink.query };
+      }
+    }
     if (parsed.coordinates) {
       fromPoint(parsed.coordinates, parsed.name && !/^https?:/i.test(parsed.name) ? parsed.name : name || 'Punto de Maps');
     } else if (parsed.query) {
       setQ(parsed.query);
       search(parsed.query);
     } else {
-      setMsg('Ese enlace corto no trae la ubicación. Copia también el nombre del sitio, o búscalo arriba.');
+      setMsg('No he podido sacar la ubicación de ese enlace. Busca el sitio arriba o márcalo en el mapa.');
     }
   };
 

@@ -196,6 +196,11 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
                       </p>
                     </div>
                   </div>
+                  {p.basedOn && p.basedOn !== 'null' && (
+                    <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-gold-soft px-2.5 py-1 text-[11.5px] font-semibold text-gold">
+                      Porque os encantó {p.basedOn}
+                    </p>
+                  )}
                   {p.why && <p className="mt-2 text-[13.5px] leading-snug">{p.why}</p>}
                   {p.dish && (
                     <p className="mt-1.5 text-[12.5px] text-muted">
