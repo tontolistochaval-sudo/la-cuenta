@@ -83,7 +83,28 @@ export async function aiDiscover(all: RestaurantEntry[], focus: DiscoverFocus, w
       vero: r.scores!.vero,
     }));
   const wishlist = all.filter((r) => r.kind === 'restaurant' && r.status === 'wishlist').map((r) => r.name);
-  return call<{ places: AIPlace[]; provider?: string; grounded?: boolean }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
+  const res = await call<{ places: AIPlace[]; provider?: string; grounded?: boolean }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
+  // La IA a veces devuelve campos con otra forma (un objeto en vez de texto): dejarlo todo como texto.
+  const text = (v: unknown): string | undefined => {
+    if (v == null) return undefined;
+    if (typeof v === 'string') return /^(null|undefined)$/i.test(v.trim()) ? undefined : v.trim() || undefined;
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'object') return Object.values(v as Record<string, unknown>).filter((x) => typeof x === 'string').join(' ') || undefined;
+    return undefined;
+  };
+  const places = (Array.isArray(res.places) ? res.places : [])
+    .map((p): AIPlace => ({
+      name: text(p.name) ?? '',
+      category: text(p.category),
+      neighborhood: text(p.neighborhood),
+      address: text(p.address),
+      priceLevel: Number.isFinite(Number(p.priceLevel)) ? Number(p.priceLevel) : undefined,
+      why: text(p.why),
+      dish: text(p.dish),
+      basedOn: text(p.basedOn) ?? null,
+    }))
+    .filter((p) => p.name);
+  return { ...res, places };
 }
 
 /** Búsqueda de sitios con TomTom (vía la función, para no exponer la clave). Sin sesión o sin clave: nada. */

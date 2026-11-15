@@ -138,3 +138,44 @@ export const googleMapsUrl = (r: RestaurantEntry) => {
   const q = [r.name, r.address, r.address ? 'Madrid' : r.neighborhood ?? 'Madrid'].filter(Boolean).join(', ');
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 };
+
+/**
+ * Deja una entrada con los tipos correctos (textos como texto, coordenadas numéricas…).
+ * Protege de datos raros que lleguen de la IA, de copias antiguas o de la nube:
+ * un campo con forma inesperada no debe tumbar la app.
+ */
+export function sanitizeEntry(raw: RestaurantEntry): RestaurantEntry {
+  const e = { ...raw } as RestaurantEntry & Record<string, unknown>;
+  const str = (v: unknown): string | undefined => {
+    if (v == null) return undefined;
+    if (typeof v === 'string') return v.trim() || undefined;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (typeof v === 'object') {
+      const parts = Object.values(v as Record<string, unknown>).filter((x) => typeof x === 'string' || typeof x === 'number');
+      return parts.length ? parts.join(' ') : undefined;
+    }
+    return undefined;
+  };
+  e.name = str(e.name) ?? 'Sin nombre';
+  e.category = str(e.category) ?? 'Otros';
+  for (const k of ['neighborhood', 'address', 'notes', 'bestDish', 'phone', 'website', 'imageUrl', 'visitDate'] as const) {
+    const v = str(e[k]);
+    if (v === undefined) delete e[k];
+    else (e as Record<string, unknown>)[k] = v;
+  }
+  if (e.neighborhood && /^(null|undefined|madrid)$/i.test(e.neighborhood)) delete e.neighborhood;
+  const c = e.coordinates as unknown;
+  if (!(Array.isArray(c) && c.length === 2 && c.every((n) => typeof n === 'number' && Number.isFinite(n)))) delete e.coordinates;
+  if (e.priceLevel != null) {
+    const n = Math.round(Number(e.priceLevel));
+    if (n >= 1 && n <= 4) e.priceLevel = n as 1 | 2 | 3 | 4;
+    else delete e.priceLevel;
+  }
+  if (e.pricePerPerson != null && !Number.isFinite(Number(e.pricePerPerson))) delete e.pricePerPerson;
+  if (e.tags && !Array.isArray(e.tags)) delete e.tags;
+  if (e.tags) e.tags = e.tags.map((t) => str(t)).filter((t): t is string => !!t);
+  if (e.revisits && !Array.isArray(e.revisits)) delete e.revisits;
+  if (e.kind !== 'recipe') e.kind = 'restaurant';
+  if (e.status !== 'wishlist') e.status = 'visited';
+  return e;
+}

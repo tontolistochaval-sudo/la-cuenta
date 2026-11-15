@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { del, get as idbGet, set as idbSet } from 'idb-keyval';
 import { INITIAL_RESTAURANTS, LEGACY_SEED_IDS, type Kind, type RestaurantEntry } from '../data/seedData';
+import { sanitizeEntry } from '../lib/utils';
 
 export type SortKey = 'score' | 'recent' | 'gonzalo' | 'vero';
 
@@ -78,7 +79,7 @@ const idbStorage: StateStorage = {
   },
 };
 
-const stamp = (e: RestaurantEntry): RestaurantEntry => ({ ...e, updatedAt: Date.now() });
+const stamp = (e: RestaurantEntry): RestaurantEntry => ({ ...sanitizeEntry(e), updatedAt: Date.now() });
 const withoutKey = (o: Record<string, number>, k: string) => {
   if (!(k in o)) return o;
   const n = { ...o };
@@ -116,14 +117,14 @@ export const useStore = create<State>()(
           const tomb = { ...s.tombstones };
           s.restaurants.forEach((r) => !keep.has(r.id) && (tomb[r.id] = now));
           entries.forEach((e) => delete tomb[e.id]);
-          return { restaurants: entries.map((e) => ({ ...e, updatedAt: now })), tombstones: tomb };
+          return { restaurants: entries.map((e) => ({ ...sanitizeEntry(e), updatedAt: now })), tombstones: tomb };
         }),
       mergeAll: (entries) => {
         let added = 0;
         let updated = 0;
         const { tombstones } = get();
         const map = new Map(get().restaurants.map((r) => [r.id, r]));
-        for (const e of entries) {
+        for (const e of entries.map(sanitizeEntry)) {
           const cur = map.get(e.id);
           if (!cur) {
             if ((tombstones[e.id] ?? -1) >= (e.updatedAt ?? 0)) continue; // lo borrasteis después
@@ -142,7 +143,7 @@ export const useStore = create<State>()(
         set((s) => {
           const map = new Map(s.restaurants.map((r) => [r.id, r]));
           const tomb = { ...s.tombstones };
-          for (const e of upserts) {
+          for (const e of upserts.map(sanitizeEntry)) {
             const cur = map.get(e.id);
             const t = (e.updatedAt ?? 0);
             if ((tomb[e.id] ?? -1) >= t) continue;
@@ -185,7 +186,12 @@ export const useStore = create<State>()(
       partialize: (s) => ({ restaurants: s.restaurants, mode: s.mode, settings: s.settings, tombstones: s.tombstones }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<State>;
-        return { ...current, ...p, settings: { ...current.settings, ...(p.settings ?? {}) } };
+        return {
+          ...current,
+          ...p,
+          restaurants: (p.restaurants ?? current.restaurants).map(sanitizeEntry),
+          settings: { ...current.settings, ...(p.settings ?? {}) },
+        };
       },
       migrate: (persisted, version) => {
         let state = (version >= 4 ? persisted : toV4(persisted)) as State;
