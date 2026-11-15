@@ -67,15 +67,47 @@ const googleMessage = (t: string) => {
   }
 };
 
+/** Una llamada a un modelo concreto, con tiempo máximo. En los 2.5 se apaga el "pensamiento" (más rápido). */
+function callModel(model: string, body: Record<string, unknown>, timeoutMs: number) {
+  const cfg = { ...((body.generationConfig as Record<string, unknown>) ?? {}) };
+  if (/2\.5/.test(model)) cfg.thinkingConfig = { thinkingBudget: 0 };
+  return fetch(`${API}/models/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': KEY },
+    body: JSON.stringify({ ...body, generationConfig: cfg }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+/** Diagnóstico: prueba cada modelo con una pregunta mínima y dice si responde y cuánto tarda. */
+async function diagnose() {
+  const models = (await candidates()).slice(0, 8);
+  const out = [];
+  for (const model of models) {
+    const t0 = Date.now();
+    try {
+      const res = await callModel(model, { contents: [{ role: 'user', parts: [{ text: 'Responde solo: ok' }] }] }, 25000);
+      out.push({ model, status: res.status, ms: Date.now() - t0, error: res.ok ? undefined : googleMessage(await res.text()).slice(0, 140) });
+    } catch (e) {
+      out.push({ model, status: 0, ms: Date.now() - t0, error: (e as Error).name === 'TimeoutError' ? 'tarda más de 25 s' : (e as Error).message });
+    }
+  }
+  return { configured: Deno.env.get('GEMINI_MODEL') ?? null, results: out };
+}
+
 async function gemini(body: Record<string, unknown>): Promise<string> {
-  const models = await candidates();
+  // Con GEMINI_MODEL fijado se usa solo ese (rápido); si no, se prueban candidatos.
+  const fixed = Deno.env.get('GEMINI_MODEL');
+  const models = fixed ? [fixed] : await candidates();
   let lastError = 'No hay ningún modelo de Gemini disponible.';
-  for (const model of models.slice(0, 6)) {
-    const res = await fetch(`${API}/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': KEY },
-      body: JSON.stringify(body),
-    });
+  for (const model of models.slice(0, 4)) {
+    let res: Response;
+    try {
+      res = await callModel(model, body, 45000);
+    } catch (e) {
+      lastError = (e as Error).name === 'TimeoutError' ? `${model} tarda demasiado` : (e as Error).message;
+      continue;
+    }
     if (res.ok) {
       working = model;
       const data = await res.json();
@@ -232,6 +264,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     if (body.task === 'recipe') return json(await recipe(String(body.text ?? '')));
     if (body.task === 'discover') return json(await discover(body));
+    if (body.task === 'diag') return json(await diagnose());
     return json({ error: 'Tarea desconocida' }, 400);
   } catch (e) {
     return json({ error: (e as Error).message ?? 'Error' }, 500);
