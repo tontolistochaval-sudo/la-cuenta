@@ -35,6 +35,7 @@ import {
   fmtDistance,
   nearbyPlaces,
   parseShared,
+  placeFromGoogleText,
   rememberPosition,
   reverse,
   searchPlaces,
@@ -860,7 +861,27 @@ function WhereStep({
     }
     if (parsed.coordinates) {
       fromPoint(parsed.coordinates, parsed.name && !/^https?:/i.test(parsed.name) ? parsed.name : name || 'Punto de Maps');
-    } else if (parsed.query) {
+      return;
+    }
+    // "Nombre, Calle, Número, Barrio, CP Madrid" (lo que da Google): ubicar por la dirección.
+    const googleText = [parsed.name, parsed.query].find((s) => s && s.split(',').length >= 3);
+    if (googleText) {
+      setBusy('reverse');
+      const place = await placeFromGoogleText(googleText);
+      setBusy(null);
+      if (place) {
+        if (!name.trim()) setName(place.name);
+        setLoc({ coordinates: place.coordinates, address: place.address, placeName: place.name });
+        setHood(place.neighborhood ?? '');
+        if (!place.neighborhood) {
+          const r = await reverse(place.coordinates);
+          if (r.neighborhood) setHood(r.neighborhood);
+        }
+        haptic.success();
+        return;
+      }
+    }
+    if (parsed.query) {
       setQ(parsed.query);
       search(parsed.query);
     } else {

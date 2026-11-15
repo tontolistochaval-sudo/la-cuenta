@@ -322,3 +322,42 @@ export function parseShared(text: string): { coordinates?: [number, number]; nam
     query: lines.length ? lines.slice(0, 2).join(', ') : placeName,
   };
 }
+
+/** "Rda. de Atocha, 3" → "Ronda de Atocha 3": abreviaturas de Google Maps a nombres completos. */
+const expandStreet = (s: string) =>
+  s
+    .replace(/\bRda\.\s*/gi, 'Ronda ')
+    .replace(/\bC\.\s*/g, 'Calle ')
+    .replace(/\bC\/\s*/gi, 'Calle ')
+    .replace(/\bAv(?:da)?\.\s*/gi, 'Avenida ')
+    .replace(/\bPl\.\s*/gi, 'Plaza ')
+    .replace(/\bP\.º\s*/gi, 'Paseo ')
+    .replace(/\bPza\.\s*/gi, 'Plaza ')
+    .replace(/\bGta\.\s*/gi, 'Glorieta ')
+    .replace(/\bCtra\.\s*/gi, 'Carretera ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Texto de Google Maps "Nombre, Calle, Número, Barrio, CP Ciudad" → nombre, dirección y punto
+ * (geocodificando la dirección, que sí suele estar en el mapa aunque el local no).
+ */
+export async function placeFromGoogleText(text: string): Promise<Place | undefined> {
+  const parts = text.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) return undefined;
+  const name = parts[0].replace(/\b([A-ZÁÉÍÓÚÑ])([A-ZÁÉÍÓÚÑ]+)\b/g, (_, a: string, b: string) => a + b.toLowerCase());
+  const rest = parts.slice(1);
+  // Calle (+ número si va suelto) y, si aparece, barrio y código postal.
+  const street = expandStreet(/^\d+[a-zA-Z]?$/.test(rest[1] ?? '') ? `${rest[0]} ${rest[1]}` : rest[0]);
+  const cp = rest.find((s) => /\b\d{5}\b/.test(s));
+  const hood = rest.find((s, i) => i > 0 && !/\d/.test(s) && !/^madrid$/i.test(s));
+  const query = [street, cp ?? 'Madrid'].join(', ');
+  try {
+    const found = (await nominatim(`limit=3&countrycodes=es&q=${encodeURIComponent(query)}`)).map(toPlace);
+    const hit = found[0];
+    if (!hit) return undefined;
+    return { name, address: street, neighborhood: hood ?? hit.neighborhood, coordinates: hit.coordinates, type: 'restaurant' };
+  } catch {
+    return undefined;
+  }
+}
