@@ -1393,7 +1393,7 @@ function RecipeStep({
     setAiBusy(true);
     setMsg(null);
     try {
-      const { recipe: r, sourceUrl, provider } = await aiRecipe(text);
+      const { recipe: r, sourceUrl, provider, model } = await aiRecipe(text);
       if (!r.ingredients?.length && !r.steps?.length) {
         setMsg({ ok: false, text: 'La IA no ha encontrado una receta en ese texto. Prueba a pegar la descripción completa.' });
         return;
@@ -1413,7 +1413,7 @@ function RecipeStep({
       haptic.success();
       setMsg({
         ok: true,
-        text: `✨ Listo${provider === 'groq' ? ' (con el respaldo, Groq)' : ''}: ${r.ingredients.length} ingredientes, ${r.steps.length} pasos${r.tools?.length ? ` y ${r.tools.length} utensilios` : ''}. Revísalo abajo.`,
+        text: `✨ Listo: ${r.ingredients.length} ingredientes, ${r.steps.length} pasos${r.tools?.length ? ` y ${r.tools.length} utensilios` : ''}. Revísalo abajo.${model ? ` · Hecho con ${provider === 'groq' ? 'Groq · ' : ''}${model}` : ''}`,
       });
     } catch (e) {
       const why = (e as Error).message;

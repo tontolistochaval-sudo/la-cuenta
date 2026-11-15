@@ -46,6 +46,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
   const [found, setFound] = useState<Record<string, Awaited<ReturnType<typeof locate>>>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [model, setModel] = useState('');
 
   const known = (name: string) => restaurants.find((r) => r.kind === 'restaurant' && norm(r.name) === norm(name));
 
@@ -59,6 +60,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
     const timer = window.setInterval(() => setTick((t) => t + 1), 1600);
     try {
       const res = await aiDiscover(restaurants, focus, wish.trim());
+      setModel(res.model ? `${res.provider?.startsWith('groq') ? 'Groq · ' : ''}${res.model}` : '');
       let list = res.places;
       if (res.grounded === false && list.length) {
         // Sin búsqueda de Google (respaldo de Groq): enseñar solo lo que existe de verdad en el mapa.
@@ -251,6 +253,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
         {places && places.length > 0 && (
           <p className="text-center text-[11px] text-muted">
             {note || 'Sugerencias de Gemini con búsqueda de Google.'} Comprobad horario y reseñas antes de ir.
+            {model && <span className="mt-1 block font-mono text-[10.5px]">Modelo: {model}</span>}
           </p>
         )}
       </div>

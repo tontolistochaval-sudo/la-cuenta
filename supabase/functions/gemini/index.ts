@@ -24,6 +24,8 @@ const API = 'https://generativelanguage.googleapis.com/v1beta';
 const KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 /** Modelo que ha funcionado la última vez (se recuerda mientras la función siga caliente). */
 let working: string | null = Deno.env.get('GEMINI_MODEL') ?? null;
+/** Modelo que ha respondido la última petición (se devuelve a la app para mostrarlo). */
+let lastModel = '';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -114,6 +116,7 @@ async function gemini(body: Record<string, unknown>): Promise<string> {
     }
     if (res.ok) {
       working = model;
+      lastModel = model;
       const data = await res.json();
       const parts = data?.candidates?.[0]?.content?.parts ?? [];
       return parts.map((p: { text?: string }) => p.text ?? '').join('');
@@ -190,6 +193,7 @@ async function groq(system: string, user: string, opts: { json: boolean; search?
       signal: AbortSignal.timeout(60000),
     });
 
+  lastModel = model;
   let res = await send(opts.json && !opts.search);
   if (res.status === 400) {
     const t = await res.text();
@@ -401,7 +405,7 @@ async function recipe(text: string) {
       contents: [{ role: 'user', parts: [{ text: input }] }],
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: RECIPE_SCHEMA },
     });
-    return { recipe: parseJson(out), sourceUrl: url, provider: 'gemini' };
+    return { recipe: parseJson(out), sourceUrl: url, provider: 'gemini', model: lastModel };
   } catch (e) {
     if (!GROQ_KEY) throw e;
     // Respaldo gratuito: mismo encargo a Groq, pidiendo el JSON con la misma forma.
@@ -410,7 +414,7 @@ async function recipe(text: string) {
       input,
       { json: true }
     );
-    return { recipe: parseJson(out), sourceUrl: url, provider: 'groq' };
+    return { recipe: parseJson(out), sourceUrl: url, provider: 'groq', model: lastModel };
   }
 }
 
@@ -477,7 +481,7 @@ priceLevel: 1=barato … 4=caro.`;
       tools: [{ google_search: {} }],
       generationConfig: { temperature: 0.4 },
     });
-    return { places: toPlaces(out), provider: 'gemini', grounded: true };
+    return { places: toPlaces(out), provider: 'gemini', grounded: true, model: lastModel };
   } catch (e) {
     if (!GROQ_KEY) throw e;
   }
@@ -486,7 +490,7 @@ priceLevel: 1=barato … 4=caro.`;
   // 2) Groq con búsqueda web, si la cuenta tiene ese modelo.
   try {
     const out = await groq(system, prompt, { json: true, search: true });
-    return { places: toPlaces(out), provider: 'groq-web', grounded: true };
+    return { places: toPlaces(out), provider: 'groq-web', grounded: true, model: lastModel };
   } catch {
     /* sin búsqueda: modelo normal */
   }
@@ -496,7 +500,7 @@ priceLevel: 1=barato … 4=caro.`;
     prompt.replace('Busca en Google y recomiéndanos', 'Recomiéndanos'),
     { json: true }
   );
-  return { places: toPlaces(out), provider: 'groq', grounded: false };
+  return { places: toPlaces(out), provider: 'groq', grounded: false, model: lastModel };
 }
 
 /* ─────────── Servidor ─────────── */

@@ -66,7 +66,7 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
 
 /** Convierte cualquier texto (o enlace) en una receta ordenada. */
 export async function aiRecipe(text: string) {
-  return call<{ recipe: AIRecipe; sourceUrl?: string; provider?: string }>({ task: 'recipe', text });
+  return call<{ recipe: AIRecipe; sourceUrl?: string; provider?: string; model?: string }>({ task: 'recipe', text });
 }
 
 /** Recomendaciones de sitios reales según lo que ya habéis ido. */
@@ -83,7 +83,7 @@ export async function aiDiscover(all: RestaurantEntry[], focus: DiscoverFocus, w
       vero: r.scores!.vero,
     }));
   const wishlist = all.filter((r) => r.kind === 'restaurant' && r.status === 'wishlist').map((r) => r.name);
-  const res = await call<{ places: AIPlace[]; provider?: string; grounded?: boolean }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
+  const res = await call<{ places: AIPlace[]; provider?: string; grounded?: boolean; model?: string }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
   // La IA a veces devuelve campos con otra forma (un objeto en vez de texto): dejarlo todo como texto.
   const text = (v: unknown): string | undefined => {
     if (v == null) return undefined;
