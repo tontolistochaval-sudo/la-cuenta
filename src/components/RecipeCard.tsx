@@ -104,6 +104,19 @@ export default function RecipeCard({ r, onEdit }: { r: RestaurantEntry; onEdit: 
         </>
       )}
 
+      {!!rec.tools?.length && (
+        <>
+          <p className="mt-4 mb-1.5 text-[13px] font-semibold">Utensilios</p>
+          <div className="flex flex-wrap gap-1.5">
+            {rec.tools.map((t) => (
+              <span key={t} className="rounded-full bg-sand px-3 py-1 text-[13px]">
+                {t}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
       {rec.steps.length > 0 && (
         <>
           <p className="mt-4 mb-2 text-[13px] font-semibold">Paso a paso</p>
@@ -115,6 +128,16 @@ export default function RecipeCard({ r, onEdit }: { r: RestaurantEntry; onEdit: 
               </li>
             ))}
           </ol>
+          {!!rec.tips?.length && (
+            <div className="mt-4 rounded-xl bg-gold-soft/70 px-3.5 py-3">
+              <p className="text-[12px] font-semibold text-gold">Consejos</p>
+              <ul className="mt-1 space-y-1 text-[13.5px] leading-snug">
+                {rec.tips.map((t, k) => (
+                  <li key={k}>· {t}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setCooking(true)}
@@ -209,6 +232,12 @@ function CookMode({ r, onClose }: { r: RestaurantEntry; onClose: () => void }) {
                     </li>
                   ))}
                 </ul>
+                {!!r.recipe!.tools?.length && (
+                  <p className="mt-6 text-[16px] leading-snug text-paper/70">
+                    <span className="font-mono text-[11px] tracking-[0.2em] text-terracotta">UTENSILIOS · </span>
+                    {r.recipe!.tools.join(', ')}
+                  </p>
+                )}
               </>
             ) : (
               <>

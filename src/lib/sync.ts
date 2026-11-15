@@ -19,7 +19,7 @@ const KEY_ = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 /** ¿Está la app compilada con los datos del proyecto de Supabase? */
 export const syncConfigured = !!(URL_ && KEY_);
 
-const supabase: SupabaseClient | null = syncConfigured
+export const supabase: SupabaseClient | null = syncConfigured
   ? createClient(URL_!, KEY_!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } })
   : null;
 

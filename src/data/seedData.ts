@@ -13,6 +13,10 @@ export interface Scores {
 export interface RecipeDetails {
   ingredients: string[];
   steps: string[];
+  /** Sartén, horno, batidora… */
+  tools?: string[];
+  /** Consejos y trucos. */
+  tips?: string[];
   servings?: number;
   /** Minutos totales aproximados. */
   minutes?: number;

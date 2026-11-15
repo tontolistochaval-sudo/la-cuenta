@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Bookmark, Plus, ReceiptText } from 'lucide-react';
+import { Bookmark, Plus, ReceiptText, Sparkles } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { fmtEuro, ofKind } from '../lib/utils';
 import { ICON, Kicker, Photo } from '../components/ui';
@@ -9,9 +9,10 @@ interface Props {
   onOpen: (id: string) => void;
   onEvaluate: (id: string) => void;
   onAddWish: () => void;
+  onDiscover: () => void;
 }
 
-export default function Wishlist({ onOpen, onEvaluate, onAddWish }: Props) {
+export default function Wishlist({ onOpen, onEvaluate, onAddWish, onDiscover }: Props) {
   const restaurants = useStore((s) => s.restaurants);
   const mode = useStore((s) => s.mode);
   const home = mode === 'recipe';
@@ -24,13 +25,24 @@ export default function Wishlist({ onOpen, onEvaluate, onAddWish }: Props) {
           <Kicker>{`${wish.length} ${wish.length === 1 ? 'guardado' : 'guardados'}`}</Kicker>
           <h2 className="font-serif text-[30px] leading-none">{home ? 'Por cocinar' : 'Pendientes'}</h2>
         </div>
-        <button
-          type="button"
-          onClick={onAddWish}
-          className="flex items-center gap-1 rounded-full bg-sand px-3 py-2 text-[13px] font-semibold"
-        >
-          <Plus size={15} {...ICON} /> Guardar
-        </button>
+        <div className="flex gap-1.5">
+          {!home && (
+            <button
+              type="button"
+              onClick={onDiscover}
+              className="flex items-center gap-1 rounded-full bg-terracotta px-3 py-2 text-[13px] font-semibold text-white"
+            >
+              <Sparkles size={15} {...ICON} /> Descubrir
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onAddWish}
+            className="flex items-center gap-1 rounded-full bg-sand px-3 py-2 text-[13px] font-semibold"
+          >
+            <Plus size={15} {...ICON} /> Guardar
+          </button>
+        </div>
       </div>
 
       {wish.length === 0 ? (

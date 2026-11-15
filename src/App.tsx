@@ -10,6 +10,7 @@ import Settings from './views/Settings';
 import DetailSheet from './components/DetailSheet';
 import RateSheet, { type RateTarget } from './components/RateSheet';
 import StatsSheet from './components/StatsSheet';
+import DiscoverSheet from './components/DiscoverSheet';
 import Toast from './components/Toast';
 import { ICON, Segmented } from './components/ui';
 import { useStore } from './store/useStore';
@@ -38,11 +39,14 @@ export default function App() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [rate, setRate] = useState<RateTarget>(null);
   const [stats, setStats] = useState(false);
+  const [discover, setDiscover] = useState(false);
+  const closeDiscover = useCallback(() => setDiscover(false), []);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
 
   const openDetail = useCallback((id: string) => {
     setStats(false);
+    setDiscover(false);
     setDetailId(id);
   }, []);
   const closeDetail = useCallback(() => setDetailId(null), []);
@@ -166,6 +170,7 @@ export default function App() {
                 onOpen={openDetail}
                 onEvaluate={(id) => setRate({ id, evaluate: true })}
                 onAddWish={() => setRate({ id: null, status: 'wishlist' })}
+                onDiscover={() => setDiscover(true)}
               />
             )}
             {tab === 'mapa' && (
@@ -212,6 +217,7 @@ export default function App() {
       </nav>
 
       <StatsSheet open={stats} onClose={closeStats} onOpen={openDetail} />
+      <DiscoverSheet open={discover} onClose={closeDiscover} onOpen={openDetail} />
       <DetailSheet
         id={detailId}
         onClose={closeDetail}

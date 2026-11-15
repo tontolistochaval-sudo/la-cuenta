@@ -18,6 +18,7 @@ import {
   Plus,
   ReceiptText,
   Search,
+  Sparkles,
   ThumbsDown,
   ThumbsUp,
   Utensils,
@@ -41,6 +42,7 @@ import {
 } from '../lib/geo';
 import { haptic, pickPhoto, readClipboard } from '../lib/native';
 import { useBackHandler } from '../lib/back';
+import { aiRecipe } from '../lib/ai';
 import { linesToList, parseRecipeText } from '../lib/recipe';
 
 const MapPicker = lazy(() => import('./MapPicker'));
@@ -148,6 +150,8 @@ function Flow({
     servings: entry?.recipe?.servings != null ? String(entry.recipe.servings) : '',
     minutes: entry?.recipe?.minutes != null ? String(entry.recipe.minutes) : '',
     sourceUrl: entry?.recipe?.sourceUrl ?? '',
+    tools: entry?.recipe?.tools?.join('\n') ?? '',
+    tips: entry?.recipe?.tips?.join('\n') ?? '',
   });
   const [tags, setTags] = useState<string[]>(entry?.tags ?? []);
   const [priceLevel, setPriceLevel] = useState(entry?.priceLevel);
@@ -219,6 +223,8 @@ function Flow({
       servings: Number(recipe.servings) || undefined,
       minutes: Number(recipe.minutes) || undefined,
       sourceUrl: recipe.sourceUrl.trim() || undefined,
+      tools: linesToList(recipe.tools).length ? linesToList(recipe.tools) : undefined,
+      tips: linesToList(recipe.tips).length ? linesToList(recipe.tips) : undefined,
     };
     return r.ingredients.length || r.steps.length || r.sourceUrl ? r : undefined;
   };
@@ -419,6 +425,7 @@ function Flow({
                 draft={recipe}
                 setDraft={setRecipe}
                 onTitle={(t) => !name.trim() && setName(t)}
+                onCategory={(c) => !category.trim() && setCategory(c)}
               />
             )}
 
@@ -1323,20 +1330,66 @@ interface RecipeDraft {
   servings: string;
   minutes: string;
   sourceUrl: string;
+  tools: string;
+  tips: string;
 }
 
 function RecipeStep({
   draft,
   setDraft,
   onTitle,
+  onCategory,
 }: {
   draft: RecipeDraft;
   setDraft: (d: RecipeDraft) => void;
   onTitle: (t: string) => void;
+  onCategory: (c: string) => void;
 }) {
   const [paste, setPaste] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const set = (k: keyof RecipeDraft, v: string) => setDraft({ ...draft, [k]: v });
+
+  /** Con Gemini: entiende cualquier texto (o el enlace) y rellena todo. Si no se puede, el lector local. */
+  const orderWithAI = async (text: string) => {
+    if (!text.trim()) return;
+    setAiBusy(true);
+    setMsg(null);
+    try {
+      const { recipe: r, sourceUrl } = await aiRecipe(text);
+      if (!r.ingredients?.length && !r.steps?.length) {
+        setMsg({ ok: false, text: 'La IA no ha encontrado una receta en ese texto. Prueba a pegar la descripción completa.' });
+        return;
+      }
+      setDraft({
+        ingredients: (r.ingredients ?? []).join('\n') || draft.ingredients,
+        steps: (r.steps ?? []).join('\n') || draft.steps,
+        tools: (r.tools ?? []).join('\n') || draft.tools,
+        tips: (r.tips ?? []).join('\n') || draft.tips,
+        servings: r.servings ? String(r.servings) : draft.servings,
+        minutes: r.minutes ? String(r.minutes) : draft.minutes,
+        sourceUrl: sourceUrl ?? draft.sourceUrl,
+      });
+      if (r.title) onTitle(r.title);
+      if (r.category) onCategory(r.category);
+      setPaste('');
+      haptic.success();
+      setMsg({
+        ok: true,
+        text: `✨ Listo: ${r.ingredients.length} ingredientes, ${r.steps.length} pasos${r.tools?.length ? ` y ${r.tools.length} utensilios` : ''}. Revísalo abajo.`,
+      });
+    } catch (e) {
+      const why = (e as Error).message;
+      // Sin IA disponible: usar el lector local para no dejaros a medias.
+      const local = parseRecipeText(text);
+      if (local.ingredients.length || local.steps.length) {
+        order(text);
+        setMsg({ ok: false, text: `${why} He usado el lector sencillo; revísalo abajo.` });
+      } else setMsg({ ok: false, text: why });
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const order = (text: string) => {
     const onlyLink = /^https?:\/\/\S+$/i.test(text.trim());
@@ -1355,6 +1408,7 @@ function RecipeStep({
       return;
     }
     setDraft({
+      ...draft,
       ingredients: p.ingredients.join('\n') || draft.ingredients,
       steps: p.steps.join('\n') || draft.steps,
       servings: p.servings ? String(p.servings) : draft.servings,
@@ -1372,7 +1426,9 @@ function RecipeStep({
         <p className="flex items-center gap-1.5 text-[13px] font-semibold">
           <Wand2 size={15} {...ICON} className="text-terracotta" /> Pega la receta y la ordeno yo
         </p>
-        <p className="mt-0.5 text-[12px] text-muted">El texto de un TikTok, Instagram o web, tal cual.</p>
+        <p className="mt-0.5 text-[12px] text-muted">
+          El texto de un TikTok, Instagram o web, tal cual, o solo el enlace: la IA intenta leer la receta de ahí.
+        </p>
         <textarea
           className={`${field} mt-2 min-h-[84px] resize-none text-[15px]`}
           value={paste}
@@ -1398,13 +1454,22 @@ function RecipeStep({
           </button>
           <button
             type="button"
-            disabled={!paste.trim()}
-            onClick={() => order(paste)}
-            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-ink text-[13px] font-semibold text-paper disabled:opacity-40"
+            disabled={!paste.trim() || aiBusy}
+            onClick={() => orderWithAI(paste)}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-terracotta text-[13px] font-semibold text-white disabled:opacity-40"
           >
-            <Wand2 size={15} {...ICON} /> Ordenar receta
+            {aiBusy ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} {...ICON} />}
+            {aiBusy ? 'Leyendo la receta…' : 'Ordenar con IA'}
           </button>
         </div>
+        <button
+          type="button"
+          disabled={!paste.trim() || aiBusy}
+          onClick={() => order(paste)}
+          className="mt-2 w-full text-center text-[12px] font-semibold text-muted underline underline-offset-2 disabled:opacity-40"
+        >
+          Sin IA (rápido, sin internet)
+        </button>
         {msg && <p className={`mt-2 text-[12.5px] ${msg.ok ? 'text-sage' : 'text-terracotta-dark'}`}>{msg.text}</p>}
       </div>
 
@@ -1436,6 +1501,26 @@ function RecipeStep({
           value={draft.steps}
           onChange={(e) => set('steps', e.target.value)}
           placeholder={'Pela y corta las patatas.\nFríelas a fuego medio 20 min.'}
+        />
+      </label>
+
+      <label className="block">
+        <Label>Utensilios · uno por línea (opcional)</Label>
+        <textarea
+          className={`${field} min-h-20 resize-y leading-relaxed`}
+          value={draft.tools}
+          onChange={(e) => set('tools', e.target.value)}
+          placeholder={'Sartén de 24 cm\nBatidora'}
+        />
+      </label>
+
+      <label className="block">
+        <Label>Consejos (opcional)</Label>
+        <textarea
+          className={`${field} min-h-20 resize-y leading-relaxed`}
+          value={draft.tips}
+          onChange={(e) => set('tips', e.target.value)}
+          placeholder="Que la sartén esté muy caliente antes de cuajar…"
         />
       </label>
 
