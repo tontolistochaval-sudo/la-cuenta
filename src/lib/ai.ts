@@ -64,7 +64,7 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
 
 /** Convierte cualquier texto (o enlace) en una receta ordenada. */
 export async function aiRecipe(text: string) {
-  return call<{ recipe: AIRecipe; sourceUrl?: string }>({ task: 'recipe', text });
+  return call<{ recipe: AIRecipe; sourceUrl?: string; provider?: string }>({ task: 'recipe', text });
 }
 
 /** Recomendaciones de sitios reales según lo que ya habéis ido. */
@@ -81,5 +81,5 @@ export async function aiDiscover(all: RestaurantEntry[], focus: DiscoverFocus, w
       vero: r.scores!.vero,
     }));
   const wishlist = all.filter((r) => r.kind === 'restaurant' && r.status === 'wishlist').map((r) => r.name);
-  return call<{ places: AIPlace[] }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
+  return call<{ places: AIPlace[]; provider?: string; grounded?: boolean }>({ task: 'discover', visited, wishlist, focus, wish, city: 'Madrid' });
 }

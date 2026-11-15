@@ -5,7 +5,9 @@
 //
 //  Secretos (Supabase → Edge Functions → Secrets):
 //    GEMINI_API_KEY  (obligatorio) clave de https://aistudio.google.com/apikey
-//    GEMINI_MODEL    (opcional)    p. ej. "gemini-2.5-flash"; si no existe, se elige solo el Flash más nuevo
+//    GEMINI_MODEL    (opcional)    p. ej. "gemini-3.5-flash,gemini-3.6-flash" (cada modelo tiene su propia cuota gratis)
+//    GROQ_API_KEY    (opcional)    respaldo gratuito cuando Gemini no tiene cuota: https://console.groq.com/keys
+//    GROQ_MODEL      (opcional)    fuerza un modelo de Groq; si no, se elige el mejor disponible
 //
 //  Tareas:
 //    { task: "recipe",   text }                       → receta ordenada (ingredientes, pasos, utensilios…)
@@ -96,14 +98,16 @@ async function diagnose() {
 }
 
 async function gemini(body: Record<string, unknown>): Promise<string> {
-  // Con GEMINI_MODEL fijado se usa solo ese (rápido); si no, se prueban candidatos.
-  const fixed = Deno.env.get('GEMINI_MODEL');
-  const models = fixed ? [fixed] : await candidates();
+  // GEMINI_MODEL puede llevar varios separados por comas (cada modelo tiene su propia cuota gratis).
+  const fixed = (Deno.env.get('GEMINI_MODEL') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const models = fixed.length ? fixed : await candidates();
+  // Con Groq de respaldo no merece la pena esperar mucho a Gemini.
+  const timeout = GROQ_KEY ? 20000 : 45000;
   let lastError = 'No hay ningún modelo de Gemini disponible.';
   for (const model of models.slice(0, 4)) {
     let res: Response;
     try {
-      res = await callModel(model, body, 45000);
+      res = await callModel(model, body, timeout);
     } catch (e) {
       lastError = (e as Error).name === 'TimeoutError' ? `${model} tarda demasiado` : (e as Error).message;
       continue;
@@ -127,6 +131,70 @@ async function gemini(body: Record<string, unknown>): Promise<string> {
     throw new Error(`Gemini respondió ${res.status}: ${msg}`);
   }
   throw new Error(`Gemini no ha podido responder. ${lastError}`);
+}
+
+/* ─────────── Groq: respaldo gratuito cuando Gemini no tiene cuota ─────────── */
+
+const GROQ_KEY = Deno.env.get('GROQ_API_KEY') ?? '';
+const GROQ_API = 'https://api.groq.com/openai/v1';
+let groqModels: string[] | null = null;
+
+async function listGroqModels(): Promise<string[]> {
+  if (groqModels) return groqModels;
+  try {
+    const res = await fetch(`${GROQ_API}/models`, { headers: { Authorization: `Bearer ${GROQ_KEY}` }, signal: AbortSignal.timeout(8000) });
+    const data = (await res.json()) as { data?: { id: string; active?: boolean }[] };
+    groqModels = (data.data ?? [])
+      .filter((m) => m.active !== false)
+      .map((m) => m.id)
+      .filter((id) => !/whisper|tts|guard|playai|distil|vision|llava|orpheus|speech/i.test(id));
+  } catch {
+    groqModels = [];
+  }
+  return groqModels;
+}
+
+/** El mejor modelo de texto disponible (o el de GROQ_MODEL), y el de búsqueda web ("compound") si lo hay. */
+async function pickGroq(kind: 'text' | 'search'): Promise<string | null> {
+  const list = await listGroqModels();
+  if (kind === 'search') return list.find((id) => /compound/i.test(id) && !/mini/i.test(id)) ?? list.find((id) => /compound/i.test(id)) ?? null;
+  const fixed = Deno.env.get('GROQ_MODEL');
+  if (fixed) return fixed;
+  const prefs = [/gpt-oss-120b/, /llama-4-maverick/, /llama-3\.3-70b/, /kimi/, /qwen.*32b/, /gpt-oss-20b/, /llama/];
+  const text = list.filter((id) => !/compound/i.test(id));
+  for (const re of prefs) {
+    const hit = text.find((id) => re.test(id));
+    if (hit) return hit;
+  }
+  return text[0] ?? 'llama-3.3-70b-versatile';
+}
+
+async function groq(system: string, user: string, opts: { json: boolean; search?: boolean }): Promise<string> {
+  if (!GROQ_KEY) throw new Error('Sin respaldo: falta el secreto GROQ_API_KEY.');
+  const model = await pickGroq(opts.search ? 'search' : 'text');
+  if (!model) throw new Error('Groq no tiene modelo con búsqueda web.');
+  const res = await fetch(`${GROQ_API}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
+    body: JSON.stringify({
+      model,
+      temperature: opts.search ? 0.5 : 0.2,
+      max_completion_tokens: 3000,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      ...(opts.json && !opts.search ? { response_format: { type: 'json_object' } } : {}),
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    if (res.status === 429) throw new Error('Gemini y Groq están sin cuota ahora mismo. Prueba en un rato.');
+    throw new Error(`Groq respondió ${res.status}: ${googleMessage(t)}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? '';
 }
 
 /** Saca el primer bloque JSON del texto (por si viene con ```json … ```). */
@@ -187,23 +255,30 @@ async function recipe(text: string) {
   }
   if (source.length < 15) throw new Error('Pega el texto de la receta (o un enlace que tenga la receta escrita).');
 
-  const out = await gemini({
-    systemInstruction: {
-      parts: [
-        {
-          text:
-            'Eres un cocinero que convierte textos desordenados (descripciones de TikTok, Instagram, webs, notas) en recetas claras en español de España. ' +
-            'Respeta la receta original. Ingredientes con cantidad delante ("200 g de harina"); si falta una cantidad, propón una razonable y añade "(aprox.)". ' +
-            'Pasos en imperativo, uno por acción, con tiempos y temperaturas concretos cuando se puedan deducir. ' +
-            'Incluye los utensilios necesarios (sartén, horno, batidora…). Consejos solo si aportan algo. ' +
-            'Si el texto no contiene una receta, devuelve ingredients y steps vacíos.',
-        },
-      ],
-    },
-    contents: [{ role: 'user', parts: [{ text: source.slice(0, 12000) }] }],
-    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: RECIPE_SCHEMA },
-  });
-  return { recipe: parseJson(out), sourceUrl: url };
+  const system =
+    'Eres un cocinero que convierte textos desordenados (descripciones de TikTok, Instagram, webs, notas) en recetas claras en español de España. ' +
+    'Respeta la receta original. Ingredientes con cantidad delante ("200 g de harina"); si falta una cantidad, propón una razonable y añade "(aprox.)". ' +
+    'Pasos en imperativo, uno por acción, con tiempos y temperaturas concretos cuando se puedan deducir. ' +
+    'Incluye los utensilios necesarios (sartén, horno, batidora…). Consejos solo si aportan algo. ' +
+    'Si el texto no contiene una receta, devuelve ingredients y steps vacíos.';
+  const input = source.slice(0, 12000);
+  try {
+    const out = await gemini({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: input }] }],
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: RECIPE_SCHEMA },
+    });
+    return { recipe: parseJson(out), sourceUrl: url, provider: 'gemini' };
+  } catch (e) {
+    if (!GROQ_KEY) throw e;
+    // Respaldo gratuito: mismo encargo a Groq, pidiendo el JSON con la misma forma.
+    const out = await groq(
+      `${system}\nResponde SOLO con un objeto JSON con estas claves: title (texto), category (texto corto: Comida casera, Postre, Pasta, Cena rápida, Horno u otra), servings (entero), minutes (entero, tiempo total), ingredients (lista de textos), tools (lista de textos), steps (lista de textos), tips (lista de textos).`,
+      input,
+      { json: true }
+    );
+    return { recipe: parseJson(out), sourceUrl: url, provider: 'groq' };
+  }
 }
 
 /* ─────────── Tarea: descubrir sitios ─────────── */
@@ -243,14 +318,38 @@ Devuelve SOLO un JSON (sin texto antes ni después) con esta forma:
 {"places":[{"name":"","category":"Hamburguesas|Sushi|Italiano|Burrito|Ramen|Fusión|Mediterráneo|Postres / Café|otra corta","neighborhood":"barrio","address":"calle y número","priceLevel":1,"why":"una frase en español de por qué nos puede gustar, citando lo que ya nos gustó si aplica","dish":"plato que hay que pedir"}]}
 priceLevel: 1=barato … 4=caro.`;
 
-  const out = await gemini({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.7 },
-  });
-  const parsed = parseJson(out);
-  const places = (Array.isArray(parsed) ? parsed : parsed.places ?? []).filter((x: { name?: string }) => x?.name);
-  return { places: places.slice(0, 8) };
+  const toPlaces = (out: string) => {
+    const parsed = parseJson(out);
+    return (Array.isArray(parsed) ? parsed : parsed.places ?? []).filter((x: { name?: string }) => x?.name).slice(0, 8);
+  };
+
+  // 1) Gemini con búsqueda de Google: los sitios vienen comprobados.
+  try {
+    const out = await gemini({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.7 },
+    });
+    return { places: toPlaces(out), provider: 'gemini', grounded: true };
+  } catch (e) {
+    if (!GROQ_KEY) throw e;
+  }
+
+  const system = 'Eres un experto en restaurantes de Madrid. Recomiendas solo sitios que existen de verdad y respondes solo con JSON.';
+  // 2) Groq con búsqueda web, si la cuenta tiene ese modelo.
+  try {
+    const out = await groq(system, prompt, { json: true, search: true });
+    return { places: toPlaces(out), provider: 'groq-web', grounded: true };
+  } catch {
+    /* sin búsqueda: modelo normal */
+  }
+  // 3) Groq sin búsqueda: la app comprueba cada sitio en el mapa y descarta los que no aparecen.
+  const out = await groq(
+    `${system} Si no estás seguro de que un sitio existe y sigue abierto, no lo incluyas. Incluye siempre la dirección exacta.`,
+    prompt.replace('Busca en Google y recomiéndanos', 'Recomiéndanos'),
+    { json: true }
+  );
+  return { places: toPlaces(out), provider: 'groq', grounded: false };
 }
 
 /* ─────────── Servidor ─────────── */

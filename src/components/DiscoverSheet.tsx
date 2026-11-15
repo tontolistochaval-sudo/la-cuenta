@@ -42,6 +42,10 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
   const [error, setError] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<Record<string, string>>({});
+  // Ubicaciones ya encontradas (al comprobar sugerencias sin búsqueda de Google), para no repetir la búsqueda al guardar.
+  const [found, setFound] = useState<Record<string, Awaited<ReturnType<typeof locate>>>>({});
+  const [checking, setChecking] = useState<string | null>(null);
+  const [note, setNote] = useState('');
 
   const known = (name: string) => restaurants.find((r) => r.kind === 'restaurant' && norm(r.name) === norm(name));
 
@@ -50,17 +54,45 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
     if (why) return setError(why);
     setBusy(true);
     setError('');
+    setNote('');
     setPlaces(null);
     const timer = window.setInterval(() => setTick((t) => t + 1), 1600);
     try {
-      const { places: found } = await aiDiscover(restaurants, focus, wish.trim());
-      setPlaces(found);
-      if (!found.length) setError('No han salido sugerencias. Prueba con otro enfoque.');
+      const res = await aiDiscover(restaurants, focus, wish.trim());
+      let list = res.places;
+      if (res.grounded === false && list.length) {
+        // Sin búsqueda de Google (respaldo de Groq): enseñar solo lo que existe de verdad en el mapa.
+        clearInterval(timer);
+        const ok: AIPlace[] = [];
+        const where: typeof found = {};
+        for (let k = 0; k < list.length; k++) {
+          setChecking(`Comprobando en el mapa ${k + 1}/${list.length}…`);
+          const w = await locate(list[k]);
+          if (w) {
+            ok.push(list[k]);
+            where[list[k].name] = w;
+          }
+        }
+        setChecking(null);
+        setFound((f) => ({ ...f, ...where }));
+        const dropped = list.length - ok.length;
+        list = ok;
+        setNote(
+          `Hoy Gemini no tiene cuota: sugerencias del respaldo (Groq), comprobadas en el mapa.${
+            dropped ? ` He descartado ${dropped} que no aparecían.` : ''
+          }`
+        );
+      } else if (res.provider === 'groq-web') {
+        setNote('Hoy Gemini no tiene cuota: sugerencias del respaldo (Groq con búsqueda web).');
+      }
+      setPlaces(list);
+      if (!list.length) setError('No han salido sugerencias que existan en el mapa. Prueba otra vez o con otro enfoque.');
       else haptic.success();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       clearInterval(timer);
+      setChecking(null);
       setBusy(false);
     }
   };
@@ -68,7 +100,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
   const save = async (p: AIPlace) => {
     setSaving(p.name);
     try {
-      const where = await locate(p);
+      const where = found[p.name] ?? (await locate(p));
       const lvl = p.priceLevel && p.priceLevel >= 1 && p.priceLevel <= 4 ? (Math.round(p.priceLevel) as 1 | 2 | 3 | 4) : undefined;
       const entry: RestaurantEntry = {
         id: uid(),
@@ -132,7 +164,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
           className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-terracotta py-3.5 text-[15px] font-semibold text-white disabled:opacity-60"
         >
           {busy ? <LoaderCircle size={18} className="animate-spin" /> : <Sparkles size={18} {...ICON} />}
-          {busy ? LOADING[tick % LOADING.length] : places ? 'Otras sugerencias' : 'Recomiéndanos'}
+          {busy ? (checking ?? LOADING[tick % LOADING.length]) : places ? 'Otras sugerencias' : 'Recomiéndanos'}
         </button>
 
         {error && (
@@ -213,7 +245,7 @@ export default function DiscoverSheet({ open, onClose, onOpen }: { open: boolean
 
         {places && places.length > 0 && (
           <p className="text-center text-[11px] text-muted">
-            Sugerencias de Gemini con búsqueda de Google. Comprobad horario y reseñas antes de ir.
+            {note || 'Sugerencias de Gemini con búsqueda de Google.'} Comprobad horario y reseñas antes de ir.
           </p>
         )}
       </div>
