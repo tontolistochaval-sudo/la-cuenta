@@ -91,7 +91,8 @@ export async function tomtomPlaces(q: string, near?: [number, number]): Promise<
   if (aiUnavailable()) return [];
   try {
     const r = await call<{ places: import('./geo').Place[] }>({ task: 'places', q, near });
-    return r.places ?? [];
+    // TomTom a veces da la ciudad como "barrio": sin él, la app calcula el barrio real por el punto.
+    return (r.places ?? []).map((p) => ({ ...p, neighborhood: /^madrid$/i.test(p.neighborhood ?? '') ? undefined : p.neighborhood }));
   } catch {
     return [];
   }
